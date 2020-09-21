@@ -1,0 +1,238 @@
+sys161: System/161 release 2.0.3, compiled Aug  5 2015 14:02:38
+
+OS/161 base system version 1.99.08
+Copyright (c) 2000, 2001-2005, 2008-2011, 2013, 2014
+   President and Fellows of Harvard College.  All rights reserved.
+
+Put-your-group-name-here's system version 0 (DUMBVM #1)
+
+292k physical memory available
+Device probe...
+lamebus0 (system main bus)
+emu0 at lamebus0
+ltrace0 at lamebus0
+ltimer0 at lamebus0
+beep0 at ltimer0
+rtclock0 at ltimer0
+lrandom0 at lamebus0
+random0 at lrandom0
+lhd0 at lamebus0
+lhd1 at lamebus0
+lser0 at lamebus0
+con0 at lser0
+
+cpu0: MIPS/161 (System/161 2.x) features 0x0
+
+commit 4ee893dffc30da0c2455a0f3e3be049da4fd61b3
+Author: Kush Arora <kusharora339@example.com>
+Date:   Wed Sep 9 15:29:29 2020 -0400
+
+Initial commit of os161 for CPEN331
+asst1-start
+
+
+Q1:
+After searching with grep and narrowing down to files it was 
+found that traps are handled in 
+/home/jharvard/os161/src/kern/arch/mips/locore/exception-mips1.S assembly file
+whrein it was found that a trap occurs on line 69 if there is a UTLB exception
+else it occurs on line 87 if there is a general exception.
+From there, the common exception function is called on line 104 
+wherein the mips_trap function is called on line 260. mips_trap is the
+trap(exception) handling function for mips and is located in the same directory
+as exception-mips1.S in the file trap.c. After that in mips_trap it is seen 
+that if there is a syscall then control is directed to syscall(tf)function located
+in /home/jharvard/os161/src/kern/arch/mips/syscall/syscall.c else if it is a 
+vm fault the control is directed to the vm_fault function in 
+/home/jharvard/os161/src/kern/arch/mips/vm/dumbvm.c.
+if it's an interrupt:
+Then mainbus_interrupt function is called from line 188 in trap.c and control is
+directed to that function located in /home/jharvard/os161/src/kern/arch/sys161/dev/lamebus_machdep.c
+on line 288. From ther controleither goes to lamebus_interrupt function or interprocessor_interrupt()
+function or to reset the timer mips_timer_set and hardclock() function is called. 
+
+Q2:
+The code in os161 that invokes system calls from user programs and causes traps with
+help of grep was  found to be in 
+/home/jharvard/os161/src/userland/lib/libc/arch/mips/syscalls-mips.S file at 
+line number 84.
+
+Q3:
+there are libc functions in the "common" part of the source tree (common/libc) as well 
+as in userland/lib/libc because these are some  fundamental C functions that are very 
+frequently used by users as well and are also needed by the kernel hence they are  in the 
+common directory of kern and also in the userland.
+
+Q4:
+from the installation process it was observed that configure configures ostree hence configuring 
+the location where the os161 tree is installed. Also, configure configures platform which is the 
+target platform. We will have to rerun configure ostree if we move our computer to a different computer
+which is running a different OS.
+
+Q5:
+functions that rely of specifc registers and hence are written in machin language like mips
+are machine dependen. 
+It is important to maintain this seperation because if we put everything together then later 
+on it can be difficult to maintain and debug the code and track a particular file.
+With seperation, the two seperate types of code and can be easily found and maintaied.
+
+Q6:
+In /home/jharvard/os161/src/kern/arch/mips/include/trapframe.h it can be seen that 
+there are 37 number of unint_32 each one taking 4 bytes of space. So, the trapframe is 
+4 times 32 = 148  bytes large.
+
+Q7:
+We should re-run the kern/conf/config script whenever we add a new source files to the 
+build or add new build options.
+
+Q8:
+whenever we  change header file inclusions or whenever we configure by re-running config.
+
+Q9:
+whenever we modify kern code and also when we build the userland as we did the first time. Also,
+we need to re-run bmake whenevr we recompile. 
+
+Q10:
+we can see in /home/jharvard/os161/src/kern/main/menu.c that there is a command table. So we can basically 
+add a function that prints Hello world! in menu.c and add an entry into the command table with function and the command we would
+like to invoke it with.
+
+Q11:
+because standard utilities on our machine are not compiled for os161 code base hence we have no choice but to include thes in 
+os161 distribution 
+
+Q12:
+In the file /home/jharvard/os161/src/userland/lib/crt0/mips/crt0.S it can be noted from line 77 onwards that the return value is
+first saved in v0 register and is also saved in the s0 register incase exit() returns. Furthermore, it is moved to a0 register 
+so that it is an argument to exit.  
+
+Q13:
+if wanted to add a system call we would have to modify/add code in the follwing loactions:
+/home/jharvard/os161/src/kern/syscall/ for implementation purpose
+/home/jharvard/os161/src/kern/include/syscall.h to add a new entry
+/home/jharvard/os161/src/kern/arch/mips/syscall/syscall.c from line 112 onwards 
+
+Q14:
+With gdb it was found that first function is _start in 
+/home/jharvard/os161/src/kern/arch/sys161/main/start.S on line 39
+
+Q15:
+The very first assembly instruction that executes is at line 54 in
+/home/jharvard/os161/src/kern/arch/sys161/main/start.S:
+  addiu sp, sp, -24
+
+Q16:
+Num     Type           Disp Enb Address    What
+1       breakpoint     keep y   0x800139e4 in kmain at ../../main/main.c:211
+2       breakpoint     keep y   0x80014a0c in menu at ../../main/menu.c:697
+
+Q17:
+-The System/161 loader sets up a boot stack for the first 
+processor at the top of physical memory, and passes us a single
+string argument.A memory map is set up as shown in start.S.
+-A stack frame is set up on the real kernel stack.
+-the exception handler code is copied onto the first page of memory 
+and TLB is initialized.
+-The status register is set up. 
+-The CPU number is loaded into the PTBASE field of the CONTEXT
+ register and the GP register is loaded.
+-Finally, the copy of the bootstring is fetched as the argument and 
+main is called.
+
+Q18:
+The instruction is located at line 215 in /home/jharvard/os161/src/kern/arch/sys161/main/start.S:
+jal kmain
+
+Q19:
+211		boot();
+(gdb) s
+boot () at ../../main/main.c:99
+99		kprintf("\n");
+(gdb) b 109
+Breakpoint 2 at 0x8001375c: file ../../main/main.c, line 109.
+(gdb) c
+Continuing.
+
+Breakpoint 2, boot () at ../../main/main.c:109
+109		ram_bootstrap();
+(gdb) n
+110		proc_bootstrap();
+(gdb) n
+111		thread_bootstrap();
+(gdb) n
+112		hardclock_bootstrap();
+(gdb) n
+113		vfs_bootstrap();
+(gdb) n
+114		kheap_nextgeneration();
+
+Q20:
+(gdb) n
+111		thread_bootstrap();
+(gdb) s
+thread_bootstrap () at ../../thread/thread.c:357
+357		cpuarray_init(&allcpus);
+(gdb) p *bootcpu
+Cannot access memory at address 0x80000
+
+Q21:
+(gdb) n         
+367		bootcpu = cpu_create(0);
+(gdb) n
+368		bootthread = bootcpu->c_curthread;
+(gdb) p *bootcpu
+$1 = {c_self = 0x8003af00, c_number = 0, c_hardware_number = 0, 
+  c_curthread = 0x8003bf80, c_zombies = {tl_head = {tln_prev = 0x0, 
+      tln_next = 0x8003af1c, tln_self = 0x0}, tl_tail = {
+      tln_prev = 0x8003af10, tln_next = 0x0, tln_self = 0x0}, tl_count = 0}, 
+  c_hardclocks = 0, c_spinlocks = 0, c_isidle = false, c_runqueue = {
+    tl_head = {tln_prev = 0x0, tln_next = 0x8003af44, tln_self = 0x0}, 
+    tl_tail = {tln_prev = 0x8003af38, tln_next = 0x0, tln_self = 0x0}, 
+    tl_count = 0}, c_runqueue_lock = {splk_lock = 0, splk_holder = 0x0}, 
+  c_ipi_pending = 0, c_shootdown = {{ts_placeholder = 0} <repeats 16 times>}, 
+  c_numshootdown = 0, c_ipi_lock = {splk_lock = 0, splk_holder = 0x0}}
+
+Q22:
+BEFORE BOOT IS EXECUTED
+with array allcpus command: (prints the pointers)
+211		boot();
+(gdb) array allcpus
+0 items
+with cpuarray allcpus command: (prints an array of struct cpu)
+211		boot();
+(gdb) cpuarray allcpus
+0 cpus
+with display allcpus command:
+211		boot();
+(gdb) display allcpus
+1: allcpus = {arr = {v = 0x0, num = 0, max = 0}}
+
+Q23:
+AFTER BOOT IS EXECUTED
+with array allcpus command: (prints the pointers)
+213		menu(arguments);
+(gdb) array allcpus
+1 items
+$1 = (void *) 0x8003af00
+(gdb) array
+with cpuarray allcpus command: (prints an array of struct cpu)
+213		menu(arguments);
+(gdb) cpuarray allcpus
+1 cpus
+cpu 0:
+$1 = {c_self = 0x8003af00, c_number = 0, c_hardware_number = 0, 
+  c_curthread = 0x8003bf80, c_zombies = {tl_head = {tln_prev = 0x0, 
+      tln_next = 0x8003af1c, tln_self = 0x0}, tl_tail = {
+      tln_prev = 0x8003af10, tln_next = 0x0, tln_self = 0x0}, tl_count = 0}, 
+  c_hardclocks = 1, c_spinlocks = 0, c_isidle = false, c_runqueue = {
+    tl_head = {tln_prev = 0x0, tln_next = 0x8003af44, tln_self = 0x0}, 
+    tl_tail = {tln_prev = 0x8003af38, tln_next = 0x0, tln_self = 0x0}, 
+    tl_count = 0}, c_runqueue_lock = {splk_lock = 0, splk_holder = 0x0}, 
+  c_ipi_pending = 0, c_shootdown = {{ts_placeholder = 0} <repeats 16 times>}, 
+  c_numshootdown = 0, c_ipi_lock = {splk_lock = 0, splk_holder = 0x0}}
+with display allcpus command:
+(gdb) n
+213		menu(arguments);
+1: allcpus = {arr = {v = 0x80039fe0, num = 1, max = 4}}
+
+
