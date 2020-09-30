@@ -1,0 +1,54 @@
+Q1:
+line 777 in thread.c
+when thread_exit() is called proc_remthread() is called from within this
+function so that the thread can be removed form its process which might
+or might not be current. After which all interrupts are disabled by calling 
+splhigh() which sets IPL to highest value. Then the thread is put in S_ZOMBIE 
+mode. When the thread sleeps wchan_sleep is called from the wchan functions which in 
+turn calls the thread_switch function which puts it into the S_SLEEP state and adds it to the 
+waiting channels list.
+
+Q2: line 70 machine dependent switchframe_switch declared in threadprivate.h
+    and located in switch.S also thread_switch() at line 560 in thread.c
+    handles context switches.
+   
+Q3: There are four possible thread states:
+    1)S_RUN: is running
+    2)S_READY: is ready to run
+    3)S_SLEEP: the thread is sleeping, thread is added to list in
+               wait channel and wchan_sleep is called
+    4)S_ZOMBIE: Zombies are threads that have exited but still
+                need to have thread_destroy called on them
+
+Q4: turning interrupts off means that even if there is an interrupt in between 
+    a process it won't be taken care of(see spl.h for how this is done).
+    It is important to turn od interrupts in thread substsystems code because
+    if an interrupt interrupts a thread or interrupts while a thread is setting up it's
+    stack the process supposed to run will be completely messed up
+   
+Q5: To wake up a thread wchan_wakeone is called which in turn calls thread_make_runnable
+    which wakes up the thread and makes it runnable. A sleeping thread gets to run again when 
+    thread_make_runnable is called from thread_switch or wchan_wakeone in thread.c
+     
+Q6: The thread_switch function in ~/os161/kern/thread/thread.c on line 560 switches the current 
+    thread's state and is queued properly. Thereafter, another thread to run is selected from the runqueue.
+
+Q7: The thread_switch function picks the next thread from the runqueue but the runqueue is shuffled by the 
+    schedule function in a round-robin fashion. This shedule function is called from hardclock.
+     
+Q8: When there is a timer interrupt, the mainbus_interrupt function is called in lamebus_machdep.c which calls the 
+    hardware independent function hardclock in clock.c which calls schedule function loacted in thread.c 
+    to schedule the threads in around-robin fashion.
+
+Q9: The wchan_wakeone() function is used in the V function of semaphore and wchan_sleep() function is used
+    in the P function of the semaphore. In the P function of the semaphore the wchan_sleep function is used 
+    to yield the cpu to another process and make the thread sleep until sem_count is greater than zero. Whereas,
+    the wchan_wakeone() function is used to make a sleeping thread runnable from the waiting channel as soon as 
+    the sem_count is incremented and is made greater than zero.
+
+Q10: The implementation of wchan ensures that a thread never misses a wakeup signal because we can see in the wchan 
+     implementation that the wchan_sleep() and wchan_wakeone() functions come associated with spinlocks and when wchan_sleep() is 
+     called it in turn calls thread_switch function which adds the thread to the wchan list and unclocks it and keeps the waiting channel's
+     associated spinlock locked from the point the caller of wchan_sleep locked it until the thread is on the waiting channel list which prevents
+     the race condition mentioned in the question from happening.                       
+         
