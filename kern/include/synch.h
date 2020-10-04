@@ -75,10 +75,12 @@ void V(struct semaphore *);
 struct lock {
         char *lk_name;
         // add what you need here
+
         volatile int lk_flag; //try unsigned
         struct wchan *lk_wchan;
         struct spinlock lk_spinlk;
         //struct cpu *lk_holder;
+
         // (don't forget to mark things volatile as needed)
 };
 
@@ -118,10 +120,12 @@ bool lock_do_i_hold(struct lock *);
 struct cv {
         char *cv_name;
         // add what you need here
+
         //struct lock *lkcv;
         struct wchan *wchancv;
         struct spinlock cvspinlk;
         //volatile bool signal;
+
         // (don't forget to mark things volatile as needed)
 };
 
