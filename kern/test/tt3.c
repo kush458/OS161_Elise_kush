@@ -40,7 +40,7 @@
 
 /* dimension of matrices (cannot be too large or will overflow stack) */
 
-#define DIM 70
+//#define DIM 70
 
 #include "opt-synchprobs.h"
 
