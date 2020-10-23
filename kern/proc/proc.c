@@ -48,7 +48,10 @@
 #include <current.h>
 #include <addrspace.h>
 #include <vnode.h>
-
+#include <syscall.h> //Asst 4
+ #include <kern/limits.h>//Asst 4
+#include <vfs.h>  //Asst 4
+ #include <kern/fcntl.h>  //Asst 4, to Initialize ft
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
@@ -81,6 +84,9 @@ proc_create(const char *name)
 
 	/* VFS fields */
 	proc->p_cwd = NULL;
+
+    /*Asst4, filetable*/
+    //proc->proc_ft = NULL;
 
 	return proc;
 }
@@ -199,11 +205,16 @@ proc_create_runprogram(const char *name)
 	if (newproc == NULL) {
 		return NULL;
 	}
-
-	/* VM fields */
-
+	/*Asst4, filetable*/
+    
+    
+    initialize_ft(); /*INITIALIZE FILTABLE, Asst4*/
+    
+    newproc->proc_ft = curproc->proc_ft;
+    /* VM fields */
+    
 	newproc->p_addrspace = NULL;
-
+    
 	/* VFS fields */
 
 	/*

@@ -29,10 +29,24 @@
 
 #ifndef _SYSCALL_H_
 #define _SYSCALL_H_
-
-
+#include<types.h>
+#include<kern/limits.h>
 #include <cdefs.h> /* for __DEAD */
 struct trapframe; /* from <machine/trapframe.h> */
+
+/*
+ * Filetable.
+ */
+ struct vnode;
+ struct fileentry{ /*File entry struct*/
+   off_t offset;
+   int status_flag;
+   struct vnode *filevn;
+ };
+ 
+ struct ft{ /*Filetable struct*/
+   struct fileentry *entry[__OPEN_MAX]; //max files per process : limits.h
+ };
 
 /*
  * The system call dispatcher.
@@ -55,8 +69,18 @@ __DEAD void enter_new_process(int argc, userptr_t argv, userptr_t env,
 /*
  * Prototypes for IN-KERNEL entry points for system call implementations.
  */
+/*Initialize and free file table*/
+int initialize_ft(void);
+void free_ft(struct ft *ft);
 
 int sys_reboot(int code);
 int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
-
+int sys_close(int fd);
+int sys_open(userptr_t filename, int flags, int mode, int *retval);
+int sys_read(int fd, userptr_t buf, size_t buflen, int *retval);
+int sys_write(int fd, userptr_t buf, size_t buflen, int *retval);
+int sys_lseek(int fd, off_t pos, int whence, off_t *retval);
+int sys_dup2(int oldfd, int newfd, int *retval);
+int sys_chdir(userptr_t pathname);
+int sys___getcwd(userptr_t buf, size_t buflen, int *retval);
 #endif /* _SYSCALL_H_ */

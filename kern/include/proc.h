@@ -35,13 +35,13 @@
  *
  * Note: curproc is defined by <current.h>.
  */
-
+#include <syscall.h> //Asst4, filetable
 #include <spinlock.h>
 #include <thread.h> /* required for struct threadarray */
 
 struct addrspace;
 struct vnode;
-
+struct ft; //Asst4, filetable
 /*
  * Process structure.
  */
@@ -57,6 +57,7 @@ struct proc {
 	struct vnode *p_cwd;		/* current working directory */
 
 	/* add more material here as needed */
+	struct ft *proc_ft; /*Asst4, filetable*/
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */

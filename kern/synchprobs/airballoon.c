@@ -244,7 +244,7 @@ flowerkiller(void *p, unsigned long arg)
       lock_acquire(lock1);
       lock_acquire(lock4);
 	  if(ropes[stake1].is_severed == false && ropes[stake2].is_severed == false ){// && stakes[stake1].is_staked && stakes[stake2].is_staked){
-        if(ropes[stake1].is_severed == true && ropes[stake2].is_severed == true ){
+        if(ropes[stake1].is_severed == true || ropes[stake2].is_severed == true ){
         lock_release(lock1);
 	    lock_release(lock4);
 	    continue;
