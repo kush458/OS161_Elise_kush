@@ -1,0 +1,77 @@
+ASSIGNMENT 4
+
+
+
+
+
+Q1:  
+  the following are the ELF(Executable and linkable format) magic numbers:
+  ELF_MAG[0] = 0x7f
+  ELF_MAG[1] = E
+  ELF_MAG[2] = L
+  ELF_MAG[3] = F
+  
+Q2: 
+  from uio.h, 
+  UIO_USERISPACE contains the user process code
+  UIO_USERSPACE contains the user process data  
+  UIO_SYSSPACE is used when data transfer takes place in the kernel from src to dest
+  
+Q3:
+  The uio struct has an address space for user pointer which points to a 
+  virtual address to which memory is read hence it can be allocated on the stack.
+  
+Q4:
+  It is important to call vf_close() because if another process wats to open the file
+  it can do so otherwise we will always have reference to the unclosed vnode which we don't need.
+  
+Q5:
+  In trap.c, line 423 , we can see that the enter_new_process() function
+  makes the pocessor switch to usermode. This function is machine dependent
+  
+Q6:
+  copyinout is located in src/kern/vm/copyinout.c
+  They can't be implemented as simply as memmove() because they copy memory blocks from
+  userspace to kernelspace or vice versa while ensuring they the addresses are valid in both user and 
+  kernel space.
+
+Q7: 
+  userptr_t is used to refer t an address that exists in userspace.
+  
+Q8:
+  EX_SYS = 8 located in trapfram.h
+  
+Q9:
+  MIPS instruction is 4 bytes
+  
+Q10:
+  The implementation can be changed to prevent the kernel from panicking whenver 
+  there is a fault in the user code as can be seen on line 117 in trap.c
+  
+Q11:
+  To implement a syscall that uses > 4 arguments, the stack would need to be used.
+  
+Q12:
+  The macro is used in syscalls.S and loads the callno in register v0 where the kernel
+  expects to find it in and jump to the shared syscall code.
+  
+Q13:
+  The MIPS instruction is located at line 85 in syscalls.S
+ 
+Q14:
+  
+  arg0 will be found in register a0, tf->tf_a0
+  arg1 will be found in register a2, tf->tf_a2
+  arg2 will be found in the user stack, tf->tf_sp+16
+  
+  The 64-bit value can be returned by creating a new variable of type off_t(64-bit) 
+  and storing it in regsters v0 and v1 
+
+Q15:
+   To open a file: vfs_open()
+   MACROS for read and write: VOP_READ(), VOP_WRITE()
+   vnode data structure is used to represent an open file
+
+Q16:
+  vnode references are managed by reference counting which is in turn managed by 
+  VOP_INCREF() and VOP_DECREF()
