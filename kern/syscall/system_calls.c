@@ -10,19 +10,24 @@
  #include <copyinout.h>
  #include <kern/fcntl.h>
  #include <kern/errno.h>
+ #include <mips/trapframe.h>
  #include <kern/limits.h>
+ #include <limits.h>
  #include <kern/unistd.h>
  #include <addrspace.h>
  #include <lib.h>
  #include <vfs.h>
  #include <thread.h>
+ #include <vm.h>
  #include <copyinout.h>
  #include <uio.h>
  #include <vnode.h>
  #include <proc.h>
+ #include <synch.h>
  #include <kern/syscall.h>
  #include <kern/seek.h>
  #include <kern/stat.h>
+ #include <kern/wait.h>
  int initialize_ft(void){  /*Initialize Filetable*/
    
    /*Initialize ft: fd, 0,1,2 are for stdin, stdout and stderr respectively */
@@ -41,6 +46,8 @@
    ft1->entry[0]->filevn = v;
    ft1->entry[0]->status_flag = O_RDWR;
    ft1->entry[0]->offset = 0;
+   ft1->entry[0]->refcount = 1;
+   ft1->entry[0]->lockfd = lock_create("stdin");
    KASSERT(ft1->entry[0] != NULL);
    
    ft1->entry[1] = kmalloc(sizeof(struct fileentry)); //stdout
@@ -51,6 +58,8 @@
    ft1->entry[1]->filevn = v1;
    ft1->entry[1]->status_flag = O_WRONLY;
    ft1->entry[1]->offset = 0;
+   ft1->entry[1]->refcount = 1;
+   ft1->entry[1]->lockfd = lock_create("stdout");   
    KASSERT(ft1->entry[1] != NULL);
    
    ft1->entry[2] = kmalloc(sizeof(struct fileentry)); //stderr
@@ -61,6 +70,8 @@
    ft1->entry[2]->filevn = v2;
    ft1->entry[2]->status_flag = O_WRONLY;
    ft1->entry[2]->offset = 0;
+   ft1->entry[2]->refcount = 1;
+   ft1->entry[2]->lockfd = lock_create("stderr");
    KASSERT(ft1->entry[2] != NULL);
    
    for(int i = 3; i < __OPEN_MAX; i++){
@@ -83,6 +94,7 @@
    for(int i = 0; i < __OPEN_MAX; i++){
      if(ft->entry[i] != NULL){
        vfs_close(ft->entry[i]->filevn);
+       lock_destroy(ft->entry[i]->lockfd);
        kfree(ft->entry[i]);
        ft->entry[i] = NULL;
      }
@@ -101,7 +113,7 @@
    char *fn = (char *)kmalloc(sizeof(char) * 255);
    int p;      
    size_t size =0;
-   p = copyinstr(filename, fn, __PATH_MAX, &size);
+   p = copyinstr(filename, fn, PATH_MAX, &size);
    if(p){  /*check filename*/
      kfree(fn);
      return p;  
@@ -111,13 +123,13 @@
    /*Find a free entry (An entry == NULL) in file table*/
    int fd;
    
-   for(fd = 0; fd < __OPEN_MAX; fd++){
+   for(fd = 0; fd < OPEN_MAX; fd++){
      if(ft->entry[fd] == NULL){
        //fd = i; //This the free entry
        break;
      }
    }
-   if(fd == __OPEN_MAX){
+   if(fd == OPEN_MAX){
      return EMFILE;
    }
    
@@ -131,6 +143,8 @@
    ft->entry[fd]->filevn = vn;
    ft->entry[fd]->offset = 0;
    ft->entry[fd]->status_flag = flags;
+   ft->entry[fd]->refcount = 1;
+   ft->entry[fd]->lockfd = lock_create("lockfd");
    kfree(fn);
    *retval = fd;
    return 0;
@@ -140,7 +154,7 @@
  int sys_read(int fd, userptr_t buf, size_t buflen, int *retval){
    struct ft *ftr = curproc->proc_ft; 
    /*Check fd*/
-   if(fd < 0 || fd >= __OPEN_MAX){
+   if(fd < 0 || fd >= OPEN_MAX){
      return EBADF; /*Bad File number*/
    }
    if(ftr->entry[fd] == NULL){
@@ -152,7 +166,7 @@
      return EBADF;
    }
    
-
+   lock_acquire(ftr->entry[fd]->lockfd); /*lock acquire*/
 
    /*As in uio.h(line 137) initialize a uio*/
    struct uio read_uio;
@@ -165,25 +179,28 @@
    /*Call VOP_READ*/
    int ret = VOP_READ(ftr->entry[fd]->filevn, &read_uio);
    if(ret){
+     lock_release(ftr->entry[fd]->lockfd); /*lock release*/
      return ret;
    }
    
    //void *buf1 = kmalloc(4*buflen);
    int p = copyout(buf1, buf, buflen);
    if(p){
+   lock_release(ftr->entry[fd]->lockfd); /*lock release*/
    return p;
    }
   
    *retval = buflen - read_uio.uio_resid; 
    /*Increment the file offset by retval*/
    ftr->entry[fd]->offset = readoffset + *retval;
+   lock_release(ftr->entry[fd]->lockfd); /*lock release*/
    return 0;
  }
  /*
  FILE WRITE */
  int sys_write(int fd, userptr_t buf, size_t buflen, int *retval){
    
-   if((fd < 0) || (fd >= __OPEN_MAX)){
+   if((fd < 0) || (fd >= OPEN_MAX)){
      return EBADF; /*Bad File number*/
    }
    
@@ -205,9 +222,10 @@
    void *buf1 = kmalloc(4*buflen);
    int p = copyin(buf, buf1, buflen);
    if(p){
+   kfree(buf1);
    return p;
    }
-   
+   lock_acquire(ftw->entry[fd]->lockfd); /*lock acquire*/
    /*As in uio.h(line 137) initialize a uio*/
    struct uio write_uio;
    struct iovec write_iov;
@@ -220,12 +238,14 @@
    /*Call VOP_WRITE*/
    int ret = VOP_WRITE(ftw->entry[fd]->filevn, &write_uio);
    if(ret){
+     lock_release(ftw->entry[fd]->lockfd); /*lock release*/
      return ret;
    }
 
    *retval = buflen - write_uio.uio_resid; 
    /*Increment the file offset by retval*/
    ftw->entry[fd]->offset = write_uio.uio_offset;
+   lock_release(ftw->entry[fd]->lockfd); /*lock release*/
    return 0;
  }
  /*FILE CLOSE*/
@@ -243,10 +263,17 @@
    if(curft->entry[fd] == NULL){
      return EBADF;
    }
-
+   lock_acquire(curft->entry[fd]->lockfd); /*lock acquire*/
+   curft->entry[fd]->refcount -= 1;
    /*Don't necessarily need to use vfs_close()*/
-   curft->entry[fd]->filevn = NULL;
-   curft->entry[fd] = NULL; //Make it NULL to indicate entry is free
+   if(curft->entry[fd]->refcount == 0){
+     lock_release(curft->entry[fd]->lockfd); /*lock release*/
+     lock_destroy(curft->entry[fd]->lockfd); /*lock destroy*/
+     curft->entry[fd]->filevn = NULL;
+     curft->entry[fd] = NULL; //Make it NULL to indicate entry is free
+     return 0;
+   }
+   lock_release(curft->entry[fd]->lockfd); /*lock release*/
    return 0;
  }
  /*
@@ -324,7 +351,7 @@
      int ret = sys_close(newfd);
      if(ret){return ret;}
    }
-   
+   ftdup->entry[oldfd]->refcount++;
    ftdup->entry[newfd] = ftdup->entry[oldfd]; 
    
    *retval = newfd;
@@ -353,7 +380,7 @@
  /*
   * GETCWD
   */
- int sys___getcwd(userptr_t buf, size_t buflen, int *retval){
+ int sys___getcwd(userptr_t buf, size_t buflen, pid_t *retval){
  
    /*Need to set up a uio and call vfs_getcwd()*/
 
@@ -374,4 +401,146 @@
    return 0;
    
  }
- 
+ /*
+  * ALLOCATE PID
+  */
+ int allocate_pid(struct proc *proc){
+   /*Allocate a pid to a non-null process*/
+   int i;
+   for(i = PID_MIN; i < PID_MAX; i++){
+      if(proc_ids[i] == NULL){
+        proc_ids[i] = proc;
+        break;
+      }
+    
+   }
+   if(i == PID_MAX){
+     return EMPROC;
+   }
+    
+   return i;
+ }
+ /*
+  * FORK system call
+  */ 
+ int sys_fork(struct trapframe *tf, int *retval){
+    /* Things we need to copy (see lecture slides):
+     *   copy addr space
+     *   copy filetable
+     *   copy and tweak trapframe (arch state)
+     *   copy kernel thread (thread_fork()) (need a child process too) 
+     *   Return to usermode (mips_usermode(), enter_forked_process())
+     */
+    
+    struct addrspace *caddr = NULL;
+    struct trapframe *ctrapframe = NULL;
+    
+    /*Copy addr space*/
+    int p;     //src                , ret
+    p = as_copy(curproc->p_addrspace, &caddr);
+    if(caddr == NULL){
+      return ENOMEM;
+    }
+    
+    /*Copy filetable (from parent to child process))*/
+    struct proc *cproc = proc_return("Childprocess");
+    if(cproc == NULL){
+      return ENOMEM;
+    }
+    
+    cproc->proc_ft = curproc->proc_ft;
+    for(int i = 0; i < OPEN_MAX; i++){
+      if(cproc->proc_ft->entry[i] != NULL){
+        cproc->proc_ft->entry[i]->refcount++;
+      }
+    }  
+    cproc->ppid = curproc->pid; 
+   
+   /*copy trapframe*/
+   cproc->p_addrspace = caddr; //copy child addrspace to childporc's addrspace
+   //need to activate the addrspace in enter_forked_process
+   ctrapframe = kmalloc(sizeof(struct trapframe));
+   memcpy(ctrapframe, tf, (sizeof(struct trapframe)));
+   
+   /*Copy kernel thread
+   for reference: int thread_fork(const char *name, struct proc *proc,
+                void (*func)(void *, unsigned long),
+                void *data1, unsigned long data2);*/
+   p = thread_fork("Childthread", cproc, enter_forked_process, (struct trapframe*)ctrapframe, (unsigned long)NULL);     
+   if(p){
+     return p;
+   }
+   /*cproc's cwd (see proc_create_runprogram)*/
+   if (curproc->p_cwd != NULL) {
+		VOP_INCREF(curproc->p_cwd);
+		cproc->p_cwd = curproc->p_cwd;
+   }
+   /*Need to return child pid so, *retval = childpid*/
+   *retval = cproc->pid;
+
+   return 0;
+ }
+ /*
+  * GETPID system call
+  */
+ pid_t sys_getpid(void){
+   return curproc->pid;
+ }
+ /*
+  * EXIT system call
+  */
+ int sys__exit(int exitcode){
+   //prof said in lecture to use cvs
+   /*If a parent process exits before 
+   one or more of its children, it can no 
+   longer be expected collect their exit status.*/
+   
+   lock_acquire(curproc->proclock); /*lock acquire*/
+   curproc->exitcode = _MKWAIT_EXIT(exitcode);
+   cv_broadcast(curproc->exitcv, curproc->proclock);
+   curproc->exitflag = true;
+   lock_release(curproc->proclock); /*lock release*/
+   thread_exit();
+   return 0;
+ } 
+ /*
+  * WAITPID system call
+  */
+ int sys_waitpid(pid_t pid, int *status, int options, pid_t *retval){
+   (void)options;
+   /*The pid argument named a non-existent process*/
+   if(proc_ids[pid] == NULL || (pid < 0) || (pid > OPEN_MAX)){
+     return ESRCH;
+   }
+   
+   /*return ECHILD if pid argument named a process that was not a child of the current process*/
+   if(proc_ids[pid]->ppid != curproc->pid){
+     return ECHILD;
+   }
+   
+   /*return EFAULT if status is an invalid pointer (from vm.h)*/
+   if(status == (int *)USERSPACETOP || status == (int *)0x40000000){
+     return EFAULT;
+   } 
+   
+   lock_acquire(proc_ids[pid]->proclock);/*lock acquire*/
+   if(proc_ids[pid]->exitflag == false){ //check if child has exited
+       
+    
+     cv_wait(proc_ids[pid]->exitcv, proc_ids[pid]->proclock);
+   }
+   
+     *status = proc_ids[pid]->exitcode; 
+   
+   lock_release(proc_ids[pid]->proclock);/*lock release*/
+   
+   lock_destroy(proc_ids[pid]->proclock);
+   cv_destroy(proc_ids[pid]->exitcv);
+   as_destroy(proc_ids[pid]->p_addrspace);
+   proc_ids[pid]->p_addrspace = NULL;
+   kfree(proc_ids[pid]);
+   proc_ids[pid] = NULL;
+   
+   *retval = pid;
+   return 0;
+ }

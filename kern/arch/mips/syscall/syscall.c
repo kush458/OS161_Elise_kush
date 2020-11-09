@@ -35,6 +35,7 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
+#include <addrspace.h>
 #include <copyinout.h>
 
 /*
@@ -149,6 +150,21 @@ syscall(struct trapframe *tf)
           err = sys___getcwd((userptr_t)tf->tf_a0, tf->tf_a1, &retval);
 	      break;
 	      
+	    case SYS_fork:
+	      err = sys_fork(tf, (pid_t *)&retval);
+	      break;
+
+        case SYS_getpid:
+	      err = sys_getpid();
+	      break;
+	      
+	    case SYS_waitpid:
+	      err = sys_waitpid((pid_t)tf->tf_a0, (int *)tf->tf_a1, tf->tf_a2, (pid_t *)&retval);
+	      
+	    case SYS__exit:
+	      err = sys__exit(tf->tf_a0);
+	      break;
+	      
 	    default:
 		kprintf("Unknown syscall %d\n", callno);
 		err = ENOSYS;
@@ -169,7 +185,7 @@ syscall(struct trapframe *tf)
 		/* Success. */
 		if(ret64 >= 0){
 		  tf->tf_v0 = (int32_t)(ret64 >> 32);
-		  tf->tf_v1 = (int32_t)(ret64);
+		  tf->tf_v1 = (int32_t)(ret64 & 0xffffffff);
 		}
 		else{tf->tf_v0 = retval;}
 		tf->tf_a3 = 0;      /* signal no error */
@@ -197,7 +213,20 @@ syscall(struct trapframe *tf)
  * Thus, you can trash it and do things another way if you prefer.
  */
 void
-enter_forked_process(struct trapframe *tf)
-{
-	(void)tf;
+enter_forked_process(void *data1, unsigned long data2)
+{   (void)data2;
+    /*Need to create a new tf and free the passed one to prevent leaking memory*/
+    struct trapframe childtf; /*Need to allocate on the stack*/
+	struct trapframe *ctrapframe = (struct trapframe *)data1;
+	memcpy(&childtf, ctrapframe, sizeof(struct trapframe));
+	kfree(ctrapframe);
+	ctrapframe = NULL;
+	
+	childtf.tf_a3 = 0;
+	childtf.tf_v0 = 0;
+	childtf.tf_epc += 4; /*Need to increment pc here too as in the parent proc*/
+	as_activate(); //activate the childproc's addrsapce which is now the curproc
+	
+	/*Return to user-mode*/
+	mips_usermode(&childtf);
 }

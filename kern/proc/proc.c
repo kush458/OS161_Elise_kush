@@ -49,9 +49,9 @@
 #include <addrspace.h>
 #include <vnode.h>
 #include <syscall.h> //Asst 4
- #include <kern/limits.h>//Asst 4
+#include <kern/limits.h>//Asst 4
 #include <vfs.h>  //Asst 4
- #include <kern/fcntl.h>  //Asst 4, to Initialize ft
+#include <kern/fcntl.h>  //Asst 4, to Initialize ft
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
@@ -87,7 +87,16 @@ proc_create(const char *name)
 
     /*Asst4, filetable*/
     //proc->proc_ft = NULL;
-
+    
+    /*Asst 5*/
+    proc->pid = allocate_pid(proc);
+    
+    proc_ids[proc->pid] = proc;
+    
+    proc->proclock = lock_create("processlock");
+    proc->exitcv = cv_create("exitcv");
+    proc->exitflag = false;
+    proc->exitcode = -1;
 	return proc;
 }
 
@@ -339,4 +348,13 @@ proc_setas(struct addrspace *newas)
 	proc->p_addrspace = newas;
 	spinlock_release(&proc->p_lock);
 	return oldas;
+}
+
+struct proc *proc_return(const char *name){
+  
+  /*Create and return a new proc (will need for thread_fork()*/
+  struct proc *process;
+  process = proc_create(name);
+  
+  return process;
 }

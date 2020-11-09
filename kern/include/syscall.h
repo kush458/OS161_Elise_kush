@@ -30,10 +30,11 @@
 #ifndef _SYSCALL_H_
 #define _SYSCALL_H_
 #include<types.h>
+#include<synch.h>
 #include<kern/limits.h>
 #include <cdefs.h> /* for __DEAD */
 struct trapframe; /* from <machine/trapframe.h> */
-
+struct proc *proc_ids[__PID_MAX];
 /*
  * Filetable.
  */
@@ -41,6 +42,8 @@ struct trapframe; /* from <machine/trapframe.h> */
  struct fileentry{ /*File entry struct*/
    off_t offset;
    int status_flag;
+   int refcount;
+   struct lock *lockfd;
    struct vnode *filevn;
  };
  
@@ -59,7 +62,7 @@ void syscall(struct trapframe *tf);
  */
 
 /* Helper for fork(). You write this. */
-void enter_forked_process(struct trapframe *tf);
+void enter_forked_process(void *data1, unsigned long data2);
 
 /* Enter user mode. Does not return. */
 __DEAD void enter_new_process(int argc, userptr_t argv, userptr_t env,
@@ -72,6 +75,7 @@ __DEAD void enter_new_process(int argc, userptr_t argv, userptr_t env,
 /*Initialize and free file table*/
 int initialize_ft(void);
 void free_ft(struct ft *ft);
+int allocate_pid(struct proc *proc);
 
 int sys_reboot(int code);
 int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
@@ -83,4 +87,10 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval);
 int sys_dup2(int oldfd, int newfd, int *retval);
 int sys_chdir(userptr_t pathname);
 int sys___getcwd(userptr_t buf, size_t buflen, int *retval);
+
+/*PROCESS SYSTEM CALLS (Asst 5)*/
+int sys_fork(struct trapframe *tf, pid_t *retval);
+pid_t sys_getpid(void);
+int sys_waitpid(pid_t pid, int *status, int options, pid_t *retval);
+int sys__exit(int exitcode);
 #endif /* _SYSCALL_H_ */
