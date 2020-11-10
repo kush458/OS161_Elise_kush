@@ -471,6 +471,7 @@
    for reference: int thread_fork(const char *name, struct proc *proc,
                 void (*func)(void *, unsigned long),
                 void *data1, unsigned long data2);*/
+
    p = thread_fork("Childthread", cproc, enter_forked_process, (struct trapframe*)ctrapframe, (unsigned long)NULL);     
    if(p){
      return p;
@@ -552,3 +553,232 @@
    *retval = pid;
    return 0;
  }
+
+
+/*
+* EXECV system call
+*/
+int
+sys_execv(const char *progname, char **args)
+{
+        struct addrspace *as;
+        struct addrspace *oldas;
+        struct vnode *v;
+        vaddr_t entrypoint, stackptr;
+        userptr_t usrsp;
+        int result;
+        int errno = 0;
+        char **kArgs;
+        int numArgs;
+	char prog[sizeof(progname)];
+	memset(prog, '\0', sizeof(prog));
+
+	strcpy(prog, progname);
+
+        /*Open the file*/
+        result = vfs_open(prog, O_RDONLY, 0, &v);
+        if (result) {
+                return result;
+        }
+        /*Copy the arguments into the kernel*/
+        result = execv_copyin(args, kArgs);
+	if(result){ //if copyin error
+		int i = 0;
+		while(kArgs[i] != NULL){
+			kfree(kArgs[i]);
+			i++;
+		}
+		kfree(kArgs);
+		return result;
+	}
+	numArgs = sizeof(&kArgs)/sizeof(&kArgs[0]);
+
+        KASSERT(proc_getas() == NULL);
+
+        /* Create a new address space. */
+        as = as_create();
+        if (as == NULL) {
+                vfs_close(v);
+                for(int i = 0; i < numArgs; i++){
+                        kfree(kArgs[i]);
+                }
+		kfree(kArgs);
+                return ENOMEM;
+        }
+
+        /* Switch to it and activate it. */
+        /* Save the old address space */
+	oldas = proc_setas(as);
+        as_activate();
+
+        /* Load the executable. */
+        result = load_elf(v, &entrypoint);
+        if (result) { //return to old address space
+                proc_setas(oldas);
+                as_destroy(as); //destroy the new address space
+                for(int i = 0; i < numArgs; i++){
+                        kfree(kArgs[i]);
+                }
+		kfree(kArgs);
+                vfs_close(v);
+                return result;
+        }
+
+        /* Done with the file now. */
+        vfs_close(v);
+
+        /* Define the user stack in the address space */
+        result = as_define_stack(as, &stackptr);
+        if (result) {
+                proc_setas(oldas);
+                as_destroy(as);
+                for(int i = 0; i < numArgs; i++){
+                        kfree(kArgs[i]);
+                }
+		kfree(kArgs);
+                return result;
+        }
+
+        /*Copy args into new address space, correctly arranged*/
+	usrsp = (userptr_t)stackptr;
+        result = execv_copyout(kArgs, numArgs, usrsp);
+	if (result) {
+		proc_setas(oldas);
+		as_destroy(as);
+		for(int i = 0; i < numArgs; i++){
+			kfree(kArgs[i]);
+		}
+		kfree(kArgs);
+		return result;
+	}
+
+        /* Clean up old address space and kernel heap*/
+        as_destroy(oldas);
+        for(int i = 0; i < numArgs; i++){
+                kfree(kArgs[i]);
+        }
+	kfree(kArgs);
+        /* Warp to user mode. */
+        enter_new_process(numArgs, usrsp /*userspace addr of argv*/,
+                          NULL /*userspace addr of environment*/,
+                          stackptr, entrypoint);
+
+        /* enter_new_process does not return. */
+        panic("enter_new_process returned\n");
+        return errno;
+}
+
+/*
+* Helper function for copying in the arguments from userspace
+* This returns an array where the size of the array represents
+* the number of arguments, and each index in the array has a pointer
+* to the argument's string on the heap
+* IF ARG GOES OVER ARG_MAX, arg[arg.size - 1] will be NULL
+*/
+int execv_copyin(char **args, char **kargs){
+
+        int arg_count = 0;
+        char *argString;
+        size_t stringLength = 0;
+        size_t totalLength = 0;
+	int result;
+
+        //args is a ptr to a null terminated array
+        //find argument count
+        while(&args[arg_count] != NULL && arg_count < (ARG_MAX/4)){
+                arg_count ++;
+        }
+	kargs = kmalloc(arg_count*4);
+        //go through args, malloc space for each string, and store that
+        //address in the arg array
+	/*Initialize the array of pointers*/
+	for(int i = 0; i < arg_count; i++){
+		kargs[i] = NULL;
+	}
+        for (int i = 0; i < arg_count; i++){
+                if(totalLength < ARG_MAX){
+                        argString = kmalloc(PATH_MAX);
+                        result = copyinstr((userptr_t)args[i], argString, PATH_MAX, &stringLength);
+                        if(result){
+				return result;
+			}
+			totalLength += stringLength;
+                        kargs[i] = argString;
+                }
+                else{ //if go over ARG_MAX
+                        return E2BIG;
+                }
+
+        }
+
+        return 0;
+
+}
+
+
+/*
+* Helper function for copying arguments from the kernel to the
+* new address space
+*/
+int execv_copyout(char **kArgs, int numArgs, userptr_t sp){
+
+        userptr_t usrArgs[numArgs];
+        char *currString;
+        size_t *stringLen;
+	
+	char init = ' ';
+	currString = &init;
+	size_t len = 0;
+	stringLen = &len;
+	int result = 0;
+	
+        //decrease stack pointer by the size of the string
+        //pointed to by kArgs[i] plus the amount of null bytes
+        //needed to align to 4.then copy the string into
+        //the user stack at that stack pointer for each
+        //arg in kArgs, see each address 
+        for(int i = numArgs -1; i >= 0; i--){
+                strcpy(currString, kArgs[i]);
+		*stringLen = sizeof(currString);
+                //decrease sp by size of string at kArgs[i] + null needed to align string to 4
+                sp = (userptr_t)((int32_t)sp - (int32_t)stringLen - (int32_t)stringLen%4);
+                if((int32_t)stringLen%4 == 1){
+                        const char *term = "";
+                        strcat(currString, term);
+                }
+                if((int32_t)stringLen%4 == 2){
+                        const char *term = "";
+                        strcat(currString, term);
+                        strcat(currString, term);
+                }
+                if((int32_t)stringLen%4 == 3){
+                        const char *term = "";
+                        strcat(currString, term);
+                        strcat(currString, term);
+                        strcat(currString, term);
+                }
+                KASSERT(sizeof(currString)%4 == 0);
+                result = copyoutstr(currString, sp, PATH_MAX, NULL);
+		if(result) {
+			return result;
+		}
+                usrArgs[i] = sp; //save each new user address of string 
+        }
+	//save a null-terminated array of the locations of the 
+	//strings in userspace
+	sp = sp - 4;
+	char *null[4];
+	null[0] = '\0';
+	null[1] = '\0';
+	null[2] = '\0';
+	null[3] = '\0'; 
+	copyout(null, sp, 4);
+        sp = sp - sizeof(usrArgs);
+        result = copyout(usrArgs, sp, sizeof(usrArgs));
+	if (result) {
+		return result;
+	}
+        return result;
+
+}
+                                           

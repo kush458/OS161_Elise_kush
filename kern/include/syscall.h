@@ -93,4 +93,13 @@ int sys_fork(struct trapframe *tf, pid_t *retval);
 pid_t sys_getpid(void);
 int sys_waitpid(pid_t pid, int *status, int options, pid_t *retval);
 void sys__exit(int exitcode);
+
+
+int sys_execv(const char *progname, char **args);
+
+/*SYSCALL HELPER FUNCTION*/
+int execv_copyin(char **args, char **kargs);
+int execv_copyout(char **kArgs, int numArgs, userptr_t sp);
+
+
 #endif /* _SYSCALL_H_ */
