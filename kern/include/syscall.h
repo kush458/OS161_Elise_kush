@@ -96,7 +96,7 @@ int sys__exit(int exitcode);
 int sys_execv(const char *progname, char **args);
 
 /*SYSCALL HELPER FUNCTION*/
-char ** execv_copyin(char **args);
-userptr_t execv_copyout(char **kArgs, int numArgs, vaddr_t *stackptr);
+int execv_copyin(char **args, char **kargs);
+int execv_copyout(char **kArgs, int numArgs, userptr_t sp);
 
 #endif /* _SYSCALL_H_ */

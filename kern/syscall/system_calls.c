@@ -466,6 +466,7 @@
    for reference: int thread_fork(const char *name, struct proc *proc,
                 void (*func)(void *, unsigned long),
                 void *data1, unsigned long data2);*/
+
    p = thread_fork("Childthread", cproc, enter_forked_process, (struct trapframe*)ctrapframe, (unsigned long)NULL);     
    if(p){
      return p;
@@ -572,19 +573,17 @@ sys_execv(const char *progname, char **args)
                 return result;
         }
         /*Copy the arguments into the kernel*/
-        kArgs = execv_copyin(args);
-        numArgs = sizeof(&kArgs)/sizeof(&kArgs[0]);
-
-        /*If ARG_MAX was reached, an entry in args will be NULL*/
-        for(int i = 0; i < numArgs; i++){
-                if(kArgs[i] == NULL){
-                        for(int j = i-1; j >= 0; j--){
-                                kfree(kArgs[j]);
-                        }
-                        return E2BIG;
-                }
-        }
-
+        result = execv_copyin(args, kArgs);
+	if(result){ //if copyin error
+		int i = 0;
+		while(kArgs[i] != NULL){
+			kfree(kArgs[i]);
+			i++;
+		}
+		kfree(kArgs);
+		return result;
+	}
+	numArgs = sizeof(&kArgs)/sizeof(&kArgs[0]);
 
         KASSERT(proc_getas() == NULL);
 
@@ -595,6 +594,7 @@ sys_execv(const char *progname, char **args)
                 for(int i = 0; i < numArgs; i++){
                         kfree(kArgs[i]);
                 }
+		kfree(kArgs);
                 return ENOMEM;
         }
 
@@ -611,6 +611,7 @@ sys_execv(const char *progname, char **args)
                 for(int i = 0; i < numArgs; i++){
                         kfree(kArgs[i]);
                 }
+		kfree(kArgs);
                 vfs_close(v);
                 return result;
         }
@@ -626,19 +627,29 @@ sys_execv(const char *progname, char **args)
                 for(int i = 0; i < numArgs; i++){
                         kfree(kArgs[i]);
                 }
+		kfree(kArgs);
                 return result;
         }
 
         /*Copy args into new address space, correctly arranged*/
-
-        usrsp = execv_copyout(kArgs, numArgs, &stackptr);
+	usrsp = (userptr_t)stackptr;
+        result = execv_copyout(kArgs, numArgs, usrsp);
+	if (result) {
+		proc_setas(oldas);
+		as_destroy(as);
+		for(int i = 0; i < numArgs; i++){
+			kfree(kArgs[i]);
+		}
+		kfree(kArgs);
+		return result;
+	}
 
         /* Clean up old address space and kernel heap*/
         as_destroy(oldas);
         for(int i = 0; i < numArgs; i++){
                 kfree(kArgs[i]);
         }
-
+	kfree(kArgs);
         /* Warp to user mode. */
         enter_new_process(numArgs, usrsp /*userspace addr of argv*/,
                           NULL /*userspace addr of environment*/,
@@ -656,37 +667,43 @@ sys_execv(const char *progname, char **args)
 * to the argument's string on the heap
 * IF ARG GOES OVER ARG_MAX, arg[arg.size - 1] will be NULL
 */
-char ** execv_copyin(char **args){
+int execv_copyin(char **args, char **kargs){
 
         int arg_count = 0;
         char *argString;
         size_t stringLength = 0;
         size_t totalLength = 0;
+	int result;
 
         //args is a ptr to a null terminated array
         //find argument count
         while(&args[arg_count] != NULL && arg_count < (ARG_MAX/4)){
                 arg_count ++;
         }
-        char **kargs;
 	kargs = kmalloc(arg_count*4);
         //go through args, malloc space for each string, and store that
         //address in the arg array
+	/*Initialize the array of pointers*/
+	for(int i = 0; i < arg_count; i++){
+		kargs[i] = NULL;
+	}
         for (int i = 0; i < arg_count; i++){
                 if(totalLength < ARG_MAX){
                         argString = kmalloc(PATH_MAX);
-                        copyinstr((userptr_t)args[i], argString, PATH_MAX, &stringLength);
-                        totalLength += stringLength;
+                        result = copyinstr((userptr_t)args[i], argString, PATH_MAX, &stringLength);
+                        if(result){
+				return result;
+			}
+			totalLength += stringLength;
                         kargs[i] = argString;
                 }
                 else{ //if go over ARG_MAX
-                        kargs[i] = NULL;
-                        return kargs;
+                        return E2BIG;
                 }
 
         }
 
-        return kargs;
+        return 0;
 
 }
 
@@ -695,9 +712,8 @@ char ** execv_copyin(char **args){
 * Helper function for copying arguments from the kernel to the
 * new address space
 */
-userptr_t execv_copyout(char **kArgs, int numArgs, vaddr_t *stackptr){
+int execv_copyout(char **kArgs, int numArgs, userptr_t sp){
 
-        userptr_t sp = (userptr_t)stackptr;
         userptr_t usrArgs[numArgs];
         char *currString;
         size_t *stringLen;
@@ -706,7 +722,8 @@ userptr_t execv_copyout(char **kArgs, int numArgs, vaddr_t *stackptr){
 	currString = &init;
 	size_t len = 0;
 	stringLen = &len;
-
+	int result = 0;
+	
         //decrease stack pointer by the size of the string
         //pointed to by kArgs[i] plus the amount of null bytes
         //needed to align to 4.then copy the string into
@@ -733,13 +750,27 @@ userptr_t execv_copyout(char **kArgs, int numArgs, vaddr_t *stackptr){
                         strcat(currString, term);
                 }
                 KASSERT(sizeof(currString)%4 == 0);
-                copyoutstr(currString, sp, PATH_MAX, NULL);
+                result = copyoutstr(currString, sp, PATH_MAX, NULL);
+		if(result) {
+			return result;
+		}
                 usrArgs[i] = sp; //save each new user address of string 
         }
-
+	//save a null-terminated array of the locations of the 
+	//strings in userspace
+	sp = sp - 4;
+	char *null[4];
+	null[0] = '\0';
+	null[1] = '\0';
+	null[2] = '\0';
+	null[3] = '\0'; 
+	copyout(null, sp, 4);
         sp = sp - sizeof(usrArgs);
-        copyout(usrArgs, sp, sizeof(usrArgs));
-        return sp;
+        result = copyout(usrArgs, sp, sizeof(usrArgs));
+	if (result) {
+		return result;
+	}
+        return result;
 
 }
                                            
