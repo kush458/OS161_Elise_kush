@@ -92,5 +92,5 @@ int sys___getcwd(userptr_t buf, size_t buflen, int *retval);
 int sys_fork(struct trapframe *tf, pid_t *retval);
 pid_t sys_getpid(void);
 int sys_waitpid(pid_t pid, int *status, int options, pid_t *retval);
-int sys__exit(int exitcode);
+void sys__exit(int exitcode);
 #endif /* _SYSCALL_H_ */

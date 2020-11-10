@@ -91,7 +91,12 @@
  
  /*Free Filetable (Might be used later on)*/
  void free_ft(struct ft *ft){
-   for(int i = 0; i < __OPEN_MAX; i++){
+   (void)ft;
+   for(int i = 0; i < OPEN_MAX; i++){
+     
+      sys_close(i);
+   }
+   /*for(int i = 0; i < __OPEN_MAX; i++){
      if(ft->entry[i] != NULL){
        vfs_close(ft->entry[i]->filevn);
        lock_destroy(ft->entry[i]->lockfd);
@@ -99,7 +104,7 @@
        ft->entry[i] = NULL;
      }
    }
-   kfree(ft);
+   kfree(ft);*/
  }
  
  /*
@@ -489,19 +494,20 @@
  /*
   * EXIT system call
   */
- int sys__exit(int exitcode){
+ void sys__exit(int exitcode){
    //prof said in lecture to use cvs
    /*If a parent process exits before 
    one or more of its children, it can no 
    longer be expected collect their exit status.*/
-   
+   //proc_ids[curproc->ppid] is the parent
+   KASSERT(proc_ids[curproc->pid] != NULL); 
    lock_acquire(curproc->proclock); /*lock acquire*/
-   curproc->exitcode = _MKWAIT_EXIT(exitcode);
-   cv_broadcast(curproc->exitcv, curproc->proclock);
+   curproc->ecode = _MKWAIT_EXIT(exitcode);
    curproc->exitflag = true;
+   cv_signal(curproc->exitcv, curproc->proclock);
    lock_release(curproc->proclock); /*lock release*/
    thread_exit();
-   return 0;
+   
  } 
  /*
   * WAITPID system call
@@ -509,7 +515,7 @@
  int sys_waitpid(pid_t pid, int *status, int options, pid_t *retval){
    (void)options;
    /*The pid argument named a non-existent process*/
-   if(proc_ids[pid] == NULL || (pid < 0) || (pid > OPEN_MAX)){
+   if(proc_ids[pid] == NULL || (pid < PID_MIN) || (pid > OPEN_MAX)){
      return ESRCH;
    }
    
@@ -519,26 +525,28 @@
    }
    
    /*return EFAULT if status is an invalid pointer (from vm.h)*/
-   if(status == (int *)USERSPACETOP || status == (int *)0x40000000){
+   if(status == (int *)USERSPACETOP || status == (int *)0x40000000 || ((int)status & 3) != 0){
      return EFAULT;
    } 
    
-   lock_acquire(proc_ids[pid]->proclock);/*lock acquire*/
-   if(proc_ids[pid]->exitflag == false){ //check if child has exited
-       
-    
-     cv_wait(proc_ids[pid]->exitcv, proc_ids[pid]->proclock);
+   if(options != 0){
+   return EINVAL;
    }
+   lock_acquire(proc_ids[pid]->proclock);/*lock acquire*/
    
-     *status = proc_ids[pid]->exitcode; 
+   if(proc_ids[pid]->exitflag == false){ //check if child has exited
+     cv_wait(proc_ids[pid]->exitcv, proc_ids[pid]->proclock);    
+    
+
+   }
+   if(status != NULL){
+   *status = proc_ids[pid]->ecode; }
    
    lock_release(proc_ids[pid]->proclock);/*lock release*/
    
    lock_destroy(proc_ids[pid]->proclock);
    cv_destroy(proc_ids[pid]->exitcv);
-   as_destroy(proc_ids[pid]->p_addrspace);
-   proc_ids[pid]->p_addrspace = NULL;
-   kfree(proc_ids[pid]);
+   proc_destroy(proc_ids[pid]);
    proc_ids[pid] = NULL;
    
    *retval = pid;

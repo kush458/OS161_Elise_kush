@@ -96,7 +96,7 @@ proc_create(const char *name)
     proc->proclock = lock_create("processlock");
     proc->exitcv = cv_create("exitcv");
     proc->exitflag = false;
-    proc->exitcode = -1;
+    proc->ecode = -1;
 	return proc;
 }
 
