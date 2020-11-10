@@ -458,9 +458,9 @@
       if(cproc->proc_ft->entry[i] != NULL){
         cproc->proc_ft->entry[i]->refcount++;
       }
-    }  
-    cproc->ppid = curproc->pid; 
-   
+    } 
+    cproc->ppid = curproc->pid;
+        
    /*copy trapframe*/
    cproc->p_addrspace = caddr; //copy child addrspace to childporc's addrspace
    //need to activate the addrspace in enter_forked_process
@@ -518,10 +518,9 @@
    /*The pid argument named a non-existent process*/
    if(proc_ids[pid] == NULL || (pid < PID_MIN) || (pid > OPEN_MAX)){
      return ESRCH;
-   }
-   
+   }   
    /*return ECHILD if pid argument named a process that was not a child of the current process*/
-   if(proc_ids[pid]->ppid != curproc->pid){
+   if((proc_ids[pid]->ppid != curproc->pid) && (curproc->pid != 2)){ 
      return ECHILD;
    }
    

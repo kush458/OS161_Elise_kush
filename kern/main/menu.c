@@ -41,7 +41,7 @@
 #include <sfs.h>
 #include <syscall.h>
 #include <test.h>
-
+#include <current.h>
 
 #include "opt-synchprobs.h"
 
@@ -142,6 +142,18 @@ common_prog(int nargs, char **args)
 		return result;
 	}
 
+	/*call waitpid so shell and menu dont conflict*/
+	int *status;
+	pid_t *retval;
+	int stat = 0;
+	status = &stat;
+	pid_t ret = proc->pid;
+	retval = &ret;
+	result = sys_waitpid(proc->pid,status,0, retval);
+	if(result){
+		return result;
+	}	
+	
 	/*
 	 * The new process will be destroyed when the program exits...
 	 * once you write the code for handling that.
