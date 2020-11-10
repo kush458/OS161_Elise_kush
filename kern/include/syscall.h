@@ -98,8 +98,8 @@ void sys__exit(int exitcode);
 int sys_execv(const char *progname, char **args);
 
 /*SYSCALL HELPER FUNCTION*/
-int execv_copyin(char **args, char **kargs);
-int execv_copyout(char **kArgs, int numArgs, userptr_t sp);
+int execv_copyin(char **args, char **kargs, int *numArgs);
+int execv_copyout(char **kArgs, int numArgs, userptr_t *sp, int *slengths);
 
 
 #endif /* _SYSCALL_H_ */
