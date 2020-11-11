@@ -305,6 +305,9 @@
    if(whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END){
      return EINVAL; //See errno.h 
    }
+   if(!VOP_ISSEEKABLE(ftl->entry[fd]->filevn)){ /*Check lseek on device*/
+     return ESPIPE;
+   }
    
    /*Now change the offset (ftl->entry[fd]->offset)*/
    off_t curpos = ftl->entry[fd]->offset;
@@ -503,7 +506,11 @@
    //proc_ids[curproc->ppid] is the parent
    KASSERT(proc_ids[curproc->pid] != NULL); 
    lock_acquire(curproc->proclock); /*lock acquire*/
-   curproc->ecode = _MKWAIT_EXIT(exitcode);
+   if(exitcode){
+      curproc->ecode = _MKWAIT_SIG(exitcode);
+   }else{
+      curproc->ecode = _MKWAIT_EXIT(exitcode);
+   }
    curproc->exitflag = true;
    cv_signal(curproc->exitcv, curproc->proclock);
    lock_release(curproc->proclock); /*lock release*/
@@ -535,6 +542,7 @@
    lock_acquire(proc_ids[pid]->proclock);/*lock acquire*/
    
    if(proc_ids[pid]->exitflag == false){ //check if child has exited
+     
      cv_wait(proc_ids[pid]->exitcv, proc_ids[pid]->proclock);    
     
 
