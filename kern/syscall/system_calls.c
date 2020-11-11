@@ -506,7 +506,11 @@
    //proc_ids[curproc->ppid] is the parent
    KASSERT(proc_ids[curproc->pid] != NULL); 
    lock_acquire(curproc->proclock); /*lock acquire*/
-   curproc->ecode = _MKWAIT_EXIT(exitcode);
+   if(exitcode){
+      curproc->ecode = _MKWAIT_SIG(exitcode);
+   }else{
+      curproc->ecode = _MKWAIT_EXIT(exitcode);
+   }
    curproc->exitflag = true;
    cv_signal(curproc->exitcv, curproc->proclock);
    lock_release(curproc->proclock); /*lock release*/
