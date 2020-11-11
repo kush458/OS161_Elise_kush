@@ -572,7 +572,7 @@ sys_execv(const char *progname, char **args)
 	
 
 	
-	result = copyinstr((userptr_t)progname, prog, PATH_MAX, NULL);
+	result = copyin((userptr_t)progname, prog, PATH_MAX);
 	if(result){
 		return result;
 	}
@@ -700,8 +700,10 @@ sys_execv(const char *progname, char **args)
         for(int i = 0; i < numArgs; i++){
                 kfree(kargs[i]);
         }
+	stackptr = (vaddr_t)usrsp;
+	kprintf("staptr: %d, usrsp: %p\n", stackptr, usrsp);
         /* Warp to user mode. */
-        enter_new_process(numArgs - 1, usrsp /*userspace addr of argv*/,
+        enter_new_process(numArgs, usrsp /*userspace addr of argv*/,
                           NULL /*userspace addr of environment*/,
                           (vaddr_t)usrsp, entrypoint);
 
