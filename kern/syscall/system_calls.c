@@ -581,10 +581,16 @@ sys_execv(const char *progname, char **args)
 	char prog[sizeof(progname)*4];
 	memset(prog, '\0', sizeof(prog));
 
-
-	if(args == NULL){
+	/*return EFAULT if either param is NULL)*/
+	if(args == NULL || progname == NULL){
 		return EFAULT;
 	}	
+
+	/*return EFAULT if progname or args not a valid pointer*/
+        if(args == (char **)USERSPACETOP || args == (char **)0x40000000 || ((int)args & 3) != 0){
+     		return EFAULT;
+   	}
+
 
 	
 	result = copyin((userptr_t)progname, prog, PATH_MAX);
