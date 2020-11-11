@@ -594,10 +594,10 @@ sys_execv(const char *progname, char **args)
 
         //args is a ptr to a null terminated array
         //find argument count
-        while(args[numArgs] != NULL && numArgs < (ARG_MAX/4)){
+        while(args[numArgs] != NULL && numArgs < (ARG_MAX)){
                 numArgs++;
         }
-	if(numArgs == ARG_MAX/4){
+	if(numArgs == ARG_MAX){
 		return E2BIG;	
 	}
         char *kargs[numArgs+1];
@@ -605,24 +605,37 @@ sys_execv(const char *progname, char **args)
         //go through args, malloc space for each string, and store that
         //address in the arg array
         /*Initialize the array of pointers with a null on the end*/
-        for(int i = 0; i < numArgs+1; i++){
+        for(int i = 0; i < numArgs; i++){
                 kargs[i] = NULL;
         }
         for (int i = 0; i < numArgs; i++){
-                if(totalLength < ARG_MAX){
-                        result = copyinstr((userptr_t)args[i], kbuf, PATH_MAX, &stringLength);
-                        if(result){
-                                return result;
-                        }
+            if(totalLength < ARG_MAX){
+                result = copyinstr((userptr_t)args[i], kbuf, PATH_MAX, &stringLength);
+                if(result){
+			argString = kmalloc(ARG_MAX - totalLength);
+			result = copyinstr((userptr_t)args[i], argString, ARG_MAX - totalLength-1, &stringLength);
+			if(result){
+				kfree(argString);
+				for(int j = i-1; j >= 0; j--){
+				   kfree(kargs[j]);
+				}
+				return result;
+			}
+			if((signed int)ARG_MAX - (signed int)totalLength - (signed int)stringLength < 0){
+				return E2BIG;
+			}
+		}
+		else {
 			argString = kmalloc(stringLength);
 			memcpy(argString, kbuf, stringLength);
-			slengths[i] = stringLength;
-                        totalLength += stringLength;
-                        kargs[i] = argString;
-                }
-                else{ //if go over ARG_MAX
-                        return E2BIG;
-                }
+		}
+		slengths[i] = stringLength;
+                totalLength += stringLength;
+                kargs[i] = argString;
+            }
+            else{ //if go over ARG_MAX
+                 return E2BIG;
+            }
 
         }
 
@@ -680,8 +693,11 @@ sys_execv(const char *progname, char **args)
                 //decrease sp by size of string at kArgs[i] + null needed to align string to 4
                 usrsp = (userptr_t)((int)usrsp - stringLength - (4-stringLength%4));
                 KASSERT((int)usrsp%4 == 0);
-                result = copyoutstr(argString, usrsp, PATH_MAX, NULL);
+                result = copyoutstr(argString, usrsp, stringLength, NULL);
                 if(result) {
+			for (int j = 0; j < numArgs; j++){
+			   kfree(kargs[i]);
+			}
                         return result;
                 }
                 usrArgs[i] = usrsp; //save each new user address of string 
