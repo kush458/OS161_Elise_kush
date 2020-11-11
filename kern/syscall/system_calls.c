@@ -668,6 +668,7 @@ sys_execv(const char *progname, char **args)
         /*Copy args into new address space, correctly arranged*/
 	usrsp = (userptr_t)stackptr;
 	userptr_t usrArgs[numArgs+1];
+	usrArgs[numArgs] = NULL;
         //result = execv_copyout(kargs, numArgs, &usrsp, slengths);
 	for(int i = numArgs - 1; i >= 0; i--){
                 stringLength = slengths[i];
@@ -701,7 +702,6 @@ sys_execv(const char *progname, char **args)
                 kfree(kargs[i]);
         }
 	stackptr = (vaddr_t)usrsp;
-	kprintf("staptr: %d, usrsp: %p\n", stackptr, usrsp);
         /* Warp to user mode. */
         enter_new_process(numArgs, usrsp /*userspace addr of argv*/,
                           NULL /*userspace addr of environment*/,
