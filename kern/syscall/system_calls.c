@@ -587,6 +587,9 @@ sys_execv(const char *progname, char **args)
 	char kbuf[PATH_MAX];
         size_t stringLength = 0;
         size_t totalLength = 0;
+	for(int i = 0; i < PATH_MAX; i++){
+		kbuf[i] = ' ';
+	}	
 
         //args is a ptr to a null terminated array
         //find argument count
@@ -600,7 +603,7 @@ sys_execv(const char *progname, char **args)
 	int slengths[numArgs];
         //go through args, malloc space for each string, and store that
         //address in the arg array
-        /*Initialize the array of pointers with a null on the end*/
+        /*Initialize the array of pointers to NULL*/
         for(int i = 0; i < numArgs; i++){
                 kargs[i] = NULL;
         }
