@@ -577,7 +577,11 @@ sys_execv(const char *progname, char **args)
         int numArgs = 0;
 	char prog[sizeof(progname)*4];
 	memset(prog, '\0', sizeof(prog));
-	
+
+
+	if(args == NULL){
+		return EFAULT;
+	}	
 
 	
 	result = copyin((userptr_t)progname, prog, PATH_MAX);
