@@ -569,27 +569,22 @@ sys_execv(const char *progname, char **args)
         int numArgs = 0;
 	char prog[sizeof(progname)*4];
 	memset(prog, '\0', sizeof(prog));
-	//initialize vars
-	strcpy(prog, progname);
 	
+
+	
+	result = copyinstr((userptr_t)progname, prog, PATH_MAX, NULL);
+	if(result){
+		return result;
+	}
 	
         /*Open the file*/
         result = vfs_open(prog, O_RDONLY, 0, &v);
         if (result) {
                 return result;
         }
-        /*Copy the arguments into the kernel*/
-        //result = execv_copyin(args, kArgs, numArgs);
-	//if(result){ //if copyin error
-	//	int i = 0;
-	//	while(kArgs[i] != NULL){
-	//		kfree(kArgs[i]);
-	//		i++;
-	//	}
-	//	kfree(kArgs);
-	//	return result;
-	//}
+        /*Copy in the arguments to kernel space*/
         char *argString;
+	char kbuf[PATH_MAX];
         size_t stringLength = 0;
         size_t totalLength = 0;
 
@@ -601,25 +596,25 @@ sys_execv(const char *progname, char **args)
 	if(numArgs == ARG_MAX/4){
 		return E2BIG;	
 	}
-        char *kargs[numArgs];
+        char *kargs[numArgs+1];
 	int slengths[numArgs];
         //go through args, malloc space for each string, and store that
         //address in the arg array
-        /*Initialize the array of pointers*/
-        for(int i = 0; i < numArgs; i++){
+        /*Initialize the array of pointers with a null on the end*/
+        for(int i = 0; i < numArgs+1; i++){
                 kargs[i] = NULL;
         }
         for (int i = 0; i < numArgs; i++){
                 if(totalLength < ARG_MAX){
-                        argString = kmalloc(PATH_MAX);
-                        result = copyinstr((userptr_t)args[i], argString, PATH_MAX, &stringLength);
+                        result = copyinstr((userptr_t)args[i], kbuf, PATH_MAX, &stringLength);
                         if(result){
                                 return result;
                         }
+			argString = kmalloc(stringLength);
+			memcpy(argString, kbuf, stringLength);
 			slengths[i] = stringLength;
                         totalLength += stringLength;
                         kargs[i] = argString;
-                        kprintf("kargs[%d] = %p\n", i, argString);
                 }
                 else{ //if go over ARG_MAX
                         return E2BIG;
@@ -658,6 +653,7 @@ sys_execv(const char *progname, char **args)
         /* Done with the file now. */
         vfs_close(v);
 
+
         /* Define the user stack in the address space */
         result = as_define_stack(as, &stackptr);
         if (result) {
@@ -671,7 +667,25 @@ sys_execv(const char *progname, char **args)
 
         /*Copy args into new address space, correctly arranged*/
 	usrsp = (userptr_t)stackptr;
-        result = execv_copyout(kargs, numArgs, &usrsp, slengths);
+	userptr_t usrArgs[numArgs+1];
+        //result = execv_copyout(kargs, numArgs, &usrsp, slengths);
+	for(int i = numArgs - 1; i >= 0; i--){
+                stringLength = slengths[i];
+                memcpy(argString, kargs[i], stringLength);
+                //decrease sp by size of string at kArgs[i] + null needed to align string to 4
+                usrsp = (userptr_t)((int)usrsp - stringLength - (4-stringLength%4));
+                KASSERT((int)usrsp%4 == 0);
+                result = copyoutstr(argString, usrsp, PATH_MAX, NULL);
+                if(result) {
+                        return result;
+                }
+                usrArgs[i] = usrsp; //save each new user address of string 
+        }
+        //push the null-terminated array of the locations of the 
+        //strings in userspace
+        usrsp =(userptr_t)((int)usrsp-(4*(numArgs+1)));
+        result = copyout(&usrArgs, usrsp, 4*(numArgs+1));
+
 	if (result) {
 		proc_setas(oldas);
 		as_destroy(as);
@@ -696,116 +710,4 @@ sys_execv(const char *progname, char **args)
         return result;
 }
 
-/*
-* Helper function for copying in the arguments from userspace
-* This returns an array where the size of the array represents
-* the number of arguments, and each index in the array has a pointer
-* to the argument's string on the heap
-* IF ARG GOES OVER ARG_MAX, arg[arg.size - 1] will be NULL
-*/
-int execv_copyin(char **args, char **kargs, int *numArgs){
-
-        int arg_count = 0;
-        char *argString;
-        size_t stringLength = 0;
-        size_t totalLength = 0;
-	int result;
-
-        //args is a ptr to a null terminated array
-        //find argument count
-        while(args[arg_count] != NULL && arg_count < (ARG_MAX/4)){
-                arg_count ++;
-        }
-	*numArgs = arg_count;
-	char *tempkargs[arg_count];	
-        //go through args, malloc space for each string, and store that
-        //address in the arg array
-	/*Initialize the array of pointers*/
-	for(int i = 0; i < arg_count; i++){
-		tempkargs[i] = NULL;
-	}
-        for (int i = 0; i < arg_count; i++){
-                if(totalLength < ARG_MAX){
-                        argString = kmalloc(PATH_MAX);
-                        result = copyinstr((userptr_t)args[i], argString, PATH_MAX, &stringLength);
-                        if(result){
-				return result;
-			}
-			totalLength += stringLength;
-                        tempkargs[i] = argString; 
-                }
-                else{ //if go over ARG_MAX
-                        return E2BIG;
-                }
-
-        }
-	
-	memcpy(kargs, tempkargs, arg_count*sizeof(tempkargs));
-        return 0;
-
-}
-
-/*
-* Helper function for copying arguments from the kernel to the
-* new address space
-*/
-
-int execv_copyout(char **kArgs, int numArgs, userptr_t *sp, int *slengths){
-
-        userptr_t usrArgs[numArgs];
-        char *currString;
-        int stringLen = 0;
-	int result = 0;
-	
-	char init = ' ';
-	currString = &init;
-	
-        //decrease stack pointer by the size of the string
-        //pointed to by kArgs[i] plus the amount of null bytes
-        //needed to align to 4.then copy the string into
-        //the user stack at that stack pointer for each
-        //arg in kArgs, see each address 
-        for(int i = numArgs -1; i >= 0; i--){
-		stringLen = slengths[i];
-                memcpy(currString, kArgs[i], stringLen);
-                //decrease sp by size of string at kArgs[i] + null needed to align string to 4
-                *sp = (userptr_t)((int)*sp - stringLen - stringLen%4);
-                if(stringLen%4 == 1){
-                        const char *term = "";
-                        strcat(currString, term);
-                }
-                if(stringLen%4 == 2){
-                        const char *term = "";
-                        strcat(currString, term);
-                        strcat(currString, term);
-                }
-                if(stringLen%4 == 3){
-                        const char *term = "";
-                        strcat(currString, term);
-                        strcat(currString, term);
-                        strcat(currString, term);
-                }
-                KASSERT(sizeof(currString)%4 == 0);
-                result = copyoutstr(currString, *sp, PATH_MAX, NULL);
-		if(result) {
-			return result;
-		}
-                usrArgs[i] = *sp; //save each new user address of string 
-        }
-	//save a null-terminated array of the locations of the 
-	//strings in userspace
-	*sp = *sp - 4;
-	char *null;
-	char n = '\0';
-	null = &n;
-	copyout(null, *sp, 4);
-	*sp = *sp-(4*(numArgs));
-	//for(int i = numArgs - 1; i >= 0; i--){
-        //sp = sp - 4;
-	copyout(&usrArgs, *sp, 4*numArgs);
-	//}
-		
-        return result;
-
-}
                                            
