@@ -507,7 +507,10 @@
    KASSERT(proc_ids[curproc->pid] != NULL); 
    lock_acquire(curproc->proclock); /*lock acquire*/
    if(exitcode){
-      curproc->ecode = _MKWAIT_SIG(exitcode);
+     if(exitcode == 107){ /*MAGIC_STATUS*/
+       curproc->ecode = _MKWAIT_EXIT(exitcode);
+      }else{
+       curproc->ecode = _MKWAIT_SIG(exitcode);}
    }else{
       curproc->ecode = _MKWAIT_EXIT(exitcode);
    }
