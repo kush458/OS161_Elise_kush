@@ -712,7 +712,7 @@ sys_execv(const char *progname, char **args)
                 return result;
         }
 	
-
+	signed int badindex = -1;
         /*Copy args into new address space, correctly arranged*/
 	usrsp = (userptr_t)stackptr;
 	userptr_t usrArgs[numArgs+1];
@@ -721,6 +721,9 @@ sys_execv(const char *progname, char **args)
           
 		  stringLength = getLen(bigKargs[i]);
 		  memcpy(argString, bigKargs[i], stringLength);
+		  if(bigKargs[i] != argString){
+			badindex = i;	
+		  }
 		//decrease sp by size of string at kArgs[i] + null needed to align string to 4
                 usrsp = (userptr_t)((int)usrsp - stringLength - (4-stringLength%4));
                 KASSERT((int)usrsp%4 == 0);
@@ -751,10 +754,12 @@ sys_execv(const char *progname, char **args)
 
         /* Clean up old address space and kernel heap*/
         as_destroy(oldas);
-        for(int i = 0; i < numArgs; i++){
-               //kfree(bigKargs[i]);
+        for(signed int i = 0; i < numArgs; i++){
+	       if(i != badindex){
+               kfree(bigKargs[i]);}
                bigKargs[i] = NULL;
         }
+	kfree(bigKargs);
 	stackptr = (vaddr_t)usrsp;
         /* Warp to user mode. */
         enter_new_process(numArgs, usrsp /*userspace addr of argv*/,
