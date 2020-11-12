@@ -239,14 +239,15 @@
    
    uio_kinit(&write_iov, &write_uio, buf1, buflen, writeoffset, UIO_WRITE);
    KASSERT(ftw->entry[fd]->filevn != NULL);
-   
+    
    /*Call VOP_WRITE*/
    int ret = VOP_WRITE(ftw->entry[fd]->filevn, &write_uio);
+   kfree(buf1);
    if(ret){
      lock_release(ftw->entry[fd]->lockfd); /*lock release*/
      return ret;
    }
-
+  
    *retval = buflen - write_uio.uio_resid; 
    /*Increment the file offset by retval*/
    ftw->entry[fd]->offset = write_uio.uio_offset;
