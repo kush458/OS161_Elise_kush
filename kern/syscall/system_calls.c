@@ -629,7 +629,7 @@ sys_execv(const char *progname, char **args)
             if(totalLength < ARG_MAX){
                 result = copyinstr((userptr_t)args[i], kbuf, PATH_MAX, &stringLength);
                 if(result){
-			argString = kmalloc(ARG_MAX - totalLength);
+			argString = kmalloc(ARG_MAX);
 			result = copyinstr((userptr_t)args[i], argString, ARG_MAX - totalLength-1, &stringLength);
 			if(result){
 				kfree(argString);
