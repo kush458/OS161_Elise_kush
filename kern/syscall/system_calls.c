@@ -47,6 +47,7 @@
    ft1->entry[0]->status_flag = O_RDWR;
    ft1->entry[0]->offset = 0;
    ft1->entry[0]->refcount = 1;
+   ft1->entry[0]->is_semfd = false;
    ft1->entry[0]->lockfd = lock_create("stdin");
    KASSERT(ft1->entry[0] != NULL);
    
@@ -59,6 +60,7 @@
    ft1->entry[1]->status_flag = O_WRONLY;
    ft1->entry[1]->offset = 0;
    ft1->entry[1]->refcount = 1;
+   ft1->entry[1]->is_semfd = false;
    ft1->entry[1]->lockfd = lock_create("stdout");   
    KASSERT(ft1->entry[1] != NULL);
    
@@ -71,6 +73,7 @@
    ft1->entry[2]->status_flag = O_WRONLY;
    ft1->entry[2]->offset = 0;
    ft1->entry[2]->refcount = 1;
+   ft1->entry[2]->is_semfd = false;
    ft1->entry[2]->lockfd = lock_create("stderr");
    KASSERT(ft1->entry[2] != NULL);
    
@@ -123,7 +126,11 @@
      kfree(fn);
      return p;  
    } 
-   
+   //char *retstr = (char *)kmalloc(sizeof(char) * 255);
+   char substr[5];
+   memcpy(substr, &filename[0], 4);
+   char *str1 = kstrdup("sem:\0");
+   //retstr = strchr((char *)filename , ':');
    struct ft *ft = curproc->proc_ft; //Filetable of current process as declared in proc.h
    /*Find a free entry (An entry == NULL) in file table*/
    int fd;
@@ -149,6 +156,11 @@
    ft->entry[fd]->offset = 0;
    ft->entry[fd]->status_flag = flags;
    ft->entry[fd]->refcount = 1;
+   if(strcmp(str1, substr)==0){ //retstr != NULL
+     ft->entry[fd]->is_semfd = true;
+   }else{
+     ft->entry[fd]->is_semfd = false;  
+   }
    ft->entry[fd]->lockfd = lock_create("lockfd");
    kfree(fn);
    *retval = fd;
@@ -179,8 +191,12 @@
    int readoffset;
    readoffset = ftr->entry[fd]->offset;
    void *buf1 = kmalloc(4*buflen); /*Need to copyout this buf1*/
-   uio_kinit(&read_iov, &read_uio, buf1, buflen, readoffset, UIO_READ);
-   
+   if(ftr->entry[fd]->is_semfd){
+     uio_kinit(&read_iov, &read_uio, buf, buflen, readoffset, UIO_READ);
+   }
+   else{
+     uio_kinit(&read_iov, &read_uio, buf1, buflen, readoffset, UIO_READ);   
+   }
    /*Call VOP_READ*/
    int ret = VOP_READ(ftr->entry[fd]->filevn, &read_uio);
    if(ret){
@@ -189,11 +205,12 @@
    }
    
    //void *buf1 = kmalloc(4*buflen);
+   if(ftr->entry[fd]->is_semfd == false){
    int p = copyout(buf1, buf, buflen);
    if(p){
    lock_release(ftr->entry[fd]->lockfd); /*lock release*/
    return p;
-   }
+   } }
   
    *retval = buflen - read_uio.uio_resid; 
    /*Increment the file offset by retval*/
@@ -225,19 +242,24 @@
    }
    //copyin
    void *buf1 = kmalloc(4*buflen);
+   if(ftw->entry[fd]->is_semfd == false){
    int p = copyin(buf, buf1, buflen);
    if(p){
    kfree(buf1);
    return p;
-   }
+   } }
    lock_acquire(ftw->entry[fd]->lockfd); /*lock acquire*/
    /*As in uio.h(line 137) initialize a uio*/
    struct uio write_uio;
    struct iovec write_iov;
    int writeoffset;
    writeoffset = ftw->entry[fd]->offset;
-   
-   uio_kinit(&write_iov, &write_uio, buf1, buflen, writeoffset, UIO_WRITE);
+   if(ftw->entry[fd]->is_semfd){
+     uio_kinit(&write_iov, &write_uio, buf, buflen, writeoffset, UIO_WRITE);
+   }
+   else{
+     uio_kinit(&write_iov, &write_uio, buf1, buflen, writeoffset, UIO_WRITE);
+   }
    KASSERT(ftw->entry[fd]->filevn != NULL);
    
    /*Call VOP_WRITE*/
@@ -312,6 +334,7 @@
    /*Now change the offset (ftl->entry[fd]->offset)*/
    off_t curpos = ftl->entry[fd]->offset;
    off_t newpos;
+   lock_acquire(ftl->entry[fd]->lockfd); /*lock acquire*/
    if(whence == SEEK_SET){
       newpos = pos;
    }
@@ -324,13 +347,16 @@
       VOP_STAT(ftl->entry[fd]->filevn, &file_stat);
       newpos = file_stat.st_size + pos;
    }
-   if(newpos < 0){return EINVAL;} 
+   if(newpos < 0){
+     lock_release(ftl->entry[fd]->lockfd); /*lock release*/
+     return EINVAL;
+     } 
    
    /*Assign new offset to Current offset*/
    
    ftl->entry[fd]->offset = newpos;
    *retval = newpos;
-   
+   lock_release(ftl->entry[fd]->lockfd); /*lock release*/
    return 0;
  }
  /*

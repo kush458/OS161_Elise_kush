@@ -43,6 +43,7 @@ struct proc *proc_ids[__PID_MAX];
    off_t offset;
    int status_flag;
    int refcount;
+   bool is_semfd;
    struct lock *lockfd;
    struct vnode *filevn;
  };
