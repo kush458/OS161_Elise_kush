@@ -836,7 +836,7 @@ sys_execv(const char *progname, char **args)
                bigKargs[i] = NULL;
             }
             else {
-               kfree(smallKargs[i]);
+              // kfree(smallKargs[i]);
                smallKargs[i] = NULL;
             }
 
