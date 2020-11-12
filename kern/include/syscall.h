@@ -95,6 +95,6 @@ int sys_waitpid(pid_t pid, int *status, int options, pid_t *retval);
 void sys__exit(int exitcode);
 int sys_execv(const char *progname, char **args);
 
-
+int getLen(char *s); //helper function for sys_execv
 
 #endif /* _SYSCALL_H_ */
