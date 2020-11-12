@@ -96,5 +96,5 @@ void sys__exit(int exitcode);
 int sys_execv(const char *progname, char **args);
 
 int getLen(char *s); //helper function for sys_execv
-
+void fake_strcpy(char *dest, char *src, int len);
 #endif /* _SYSCALL_H_ */
