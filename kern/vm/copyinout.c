@@ -322,18 +322,36 @@ copyoutstr(const char *src, userptr_t userdest, size_t len, size_t *actual)
 }
 
 void *
-execmalloc()
+addrmalloc()
 {
-   lock_acquire(kmallock);
-   return execmem;
+   lock_acquire(addrmallock);
+   return addrmem;
 }
 
 void
-execfree(void **memptr)
+addrfree(void **memptr)
 {
-  if(memptr == execmem){
-  lock_release(kmallock);
+  if(memptr == addrmem){
+  lock_release(addrmallock);
   *memptr = NULL;
   }
   return;
 }
+
+void *
+argmalloc()
+{
+   lock_acquire(argsmallock);
+   return argmem;
+}
+
+void
+argfree(void *memptr)
+{
+  if(memptr == argmem){
+  lock_release(argsmallock);
+  memptr = NULL;
+  }
+  return;
+}
+

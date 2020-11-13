@@ -34,9 +34,12 @@
 #include<kern/limits.h>
 #include <cdefs.h> /* for __DEAD */
 struct trapframe; /* from <machine/trapframe.h> */
-struct proc *proc_ids[__PID_MAX]; /*Table for all procs corresponding to procids*/
-struct lock *kmallock;
-void *execmem;
+struct proc *proc_ids[__PID_MAX];
+struct lock *argsmallock;
+struct lock *addrmallock;
+void *argmem;
+void *addrmem;
+
 /*
  * Filetable.
  */

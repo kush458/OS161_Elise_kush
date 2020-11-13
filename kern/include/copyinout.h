@@ -69,6 +69,8 @@ int copyout(const void *src, userptr_t userdest, size_t len);
 int copyinstr(const_userptr_t usersrc, char *dest, size_t len, size_t *got);
 int copyoutstr(const char *src, userptr_t userdest, size_t len, size_t *got);
 
-void *execmalloc(void);
-void execfree(void **memptr);
+void *addrmalloc(void);
+void addrfree(void **memptr);
+void *argmalloc(void);
+void argfree(void *memptr);
 #endif /* _COPYINOUT_H_ */
