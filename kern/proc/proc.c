@@ -193,8 +193,10 @@ proc_destroy(struct proc *proc)
 void
 proc_bootstrap(void)
 {
-	kmallock = lock_create("execmemlock");
-	execmem = kmalloc(4000*4);
+	addrmallock = lock_create("execmemlock");
+	argsmallock = lock_create("execmemlocktwo");
+	addrmem = kmalloc(4000*4);
+	argmem = kmalloc(__ARG_MAX);
 	kproc = proc_create("[kernel]");
 	if (kproc == NULL) {
 		panic("proc_create for kproc failed\n");
