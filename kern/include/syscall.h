@@ -35,6 +35,8 @@
 #include <cdefs.h> /* for __DEAD */
 struct trapframe; /* from <machine/trapframe.h> */
 struct proc *proc_ids[__PID_MAX];
+struct lock *kmallock;
+void *execmem;
 /*
  * Filetable.
  */

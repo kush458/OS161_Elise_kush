@@ -598,201 +598,190 @@
 int
 sys_execv(const char *progname, char **args)
 {
-        struct addrspace *as;
-        struct addrspace *oldas;
-        struct vnode *v;
-        vaddr_t entrypoint, stackptr;
-        userptr_t usrsp;
-        int result = 0;
-        int numArgs = 0;
-	char kbuf[PATH_MAX];
-	char *argString;
-	size_t stringLength = 0;
-	size_t totalLength = 0;
-	char **bigKargs;
-	memset(kbuf, '\0', sizeof(kbuf));
+   struct addrspace *as;
+   struct addrspace *oldas;
+   struct vnode *v;
+   vaddr_t entrypoint, stackptr;
+   userptr_t usrsp;
+   int result = 0;
+   int numArgs = 0;
+   char *kbuf;
+   kbuf = kmalloc(__PATH_MAX);
+   char *argString;
+   size_t stringLength = 0;
+   size_t totalLength = 0;
+   char **bigKargs;
+   memset(kbuf, '\0', sizeof(kbuf));
+   /*return EFAULT if either param is NULL)*/
+   if(args == NULL || progname == NULL){
+      return EFAULT;
+   }	
 
-	/*return EFAULT if either param is NULL)*/
-	if(args == NULL || progname == NULL){
-		return EFAULT;
-	}	
+   /*return EFAULT if progname or args not a valid pointer*/
+   if(args == (char **)USERSPACETOP || args == (char **)0x40000000 || ((int)args & 3) != 0){
+       return EFAULT;
+   }
 
-	/*return EFAULT if progname or args not a valid pointer*/
-        if(args == (char **)USERSPACETOP || args == (char **)0x40000000 || ((int)args & 3) != 0){
-     		return EFAULT;
-   	}
-
-
+   result = copyin((userptr_t)progname, kbuf, PATH_MAX);
+   if(result){
+      return result;
+   }
 	
-	result = copyin((userptr_t)progname, kbuf, PATH_MAX);
-	if(result){
-		return result;
-	}
-	
-        /*Open the file*/
-        result = vfs_open(kbuf, O_RDONLY, 0, &v);
-        if (result) {
-                return result;
-        }
+   /*Open the file*/
+   result = vfs_open(kbuf, O_RDONLY, 0, &v);
+   if (result) {
+      return result;
+   }
 
-        /*Copy in the arguments to kernel space*/
-        //args is a ptr to a null terminated array
-        //find argument count
-        while(args[numArgs] != NULL && numArgs < (ARG_MAX)){
-                numArgs++;
-        }
-	if(numArgs == ARG_MAX){
-		return E2BIG;	
-	}
-	bigKargs = kmalloc(numArgs*4);
-        //go through args, malloc space for each string, and store that
-        //address in the arg array
-        /*Initialize the array of pointers to NULL*/
-        for(int i = 0; i < numArgs; i++){
-		  bigKargs[i] = NULL;
-        }
-        for (int i = 0; i < numArgs; i++){
-            if(totalLength < ARG_MAX){
-                result = copyinstr((userptr_t)args[i], kbuf, PATH_MAX, &stringLength);
-                
-		if(result){
-			argString = kmalloc(ARG_MAX);
-			result = copyinstr((userptr_t)args[i], argString, ARG_MAX, &stringLength);
-			if(result){
-				kfree(argString);
-				for(int j = i-1; j >= 0; j--){
-				     kfree(bigKargs[j]);
-				     bigKargs[j] = NULL;
-				}
-				return result;
-			}
-			if((signed int)ARG_MAX - (signed int)totalLength - (signed int)stringLength < 0){
-				for(int j = i - 1; j >= 0; j--){
-                                     kfree(bigKargs[j]);
-                                     bigKargs[j] = NULL;
-				}
-
-				return E2BIG;
-			}
-		}
-		else {
-			argString = kmalloc(stringLength);
-			memcpy(argString, kbuf, stringLength);
-		}
-                  bigKargs[i] = argString;
-		totalLength += stringLength;
+   /*Copy in the arguments to kernel space*/
+   //args is a ptr to a null terminated array
+   //find argument count
+   while(args[numArgs] != NULL && numArgs < (ARG_MAX)){
+      numArgs++;
+   }
+   if(numArgs == ARG_MAX){
+      return E2BIG;	
+   }
 	
-            }
-            else{ //if go over ARG_MAX
-		for (int i = 0; i < numArgs; i++){
-                     kfree(bigKargs[i]);
-                     bigKargs[i] = NULL;
-		 }
+   bigKargs = execmalloc();
+   //go through args, malloc space for each string, and store that
+   //address in the arg array
+   /*Initialize the array of pointers to NULL*/
+   for(int i = 0; i < numArgs; i++){
+       bigKargs[i] = NULL;
+   }
+   for (int i = 0; i < numArgs; i++){
+       if(totalLength < ARG_MAX){
+           result = copyinstr((userptr_t)args[i], kbuf, __PATH_MAX, &stringLength);
+           if(result){
+             argString = kmalloc(__ARG_MAX);
+             result = copyinstr((userptr_t)args[i], argString, __ARG_MAX, &stringLength);
+             if(result){
+               kfree(argString);
+               for(int j = i-1; j >= 0; j--){
+                  kfree(bigKargs[j]);
+                  bigKargs[j] = NULL;
+               }
+               return result;
+             }
+             if((signed int)ARG_MAX - (signed int)totalLength - (signed int)stringLength < 0){
+                 for(int j = i - 1; j >= 0; j--){
+                    kfree(bigKargs[j]);
+                    bigKargs[j] = NULL;
+                 }
                  return E2BIG;
-            }
-
+              }
+	     }
+             else {
+                argString = kmalloc(stringLength);
+                memcpy(argString, kbuf, stringLength);
+              }
+              bigKargs[i] = argString;
+              totalLength += stringLength;	
         }
-
-
-        /* Create a new address space. */
-        as = as_create();
-        if (as == NULL) {
-                vfs_close(v);
-                for(int i = 0; i < numArgs; i++){
-                       kfree(bigKargs[i]);
-                       bigKargs[i] = NULL;
-                }
-                return ENOMEM;
+        else{ //if go over ARG_MAX
+	    for (int i = 0; i < numArgs; i++){
+                kfree(bigKargs[i]);
+                bigKargs[i] = NULL;
+             }
+             return E2BIG;
         }
+   }
 
-        /* Switch to it and activate it. */
-        /* Save the old address space */
-	oldas = proc_setas(as);
-        as_activate();
+   kfree(kbuf);
 
-        /* Load the executable. */
-        result = load_elf(v, &entrypoint);
-        if (result) { //return to old address space
-                proc_setas(oldas);
-                as_destroy(as); //destroy the new address space
-                for(int i = 0; i < numArgs; i++){
-                      kfree(bigKargs[i]);
-                      bigKargs[i] = NULL;
-                }
-                vfs_close(v);
-                return result;
-        }
-
-        /* Done with the file now. */
-        vfs_close(v);
-
-
-        /* Define the user stack in the address space */
-        result = as_define_stack(as, &stackptr);
-        if (result) {
-                proc_setas(oldas);
-                as_destroy(as);
-                for(int i = 0; i < numArgs; i++){
-                      kfree(bigKargs[i]);
-                      bigKargs[i] = NULL;
-                }
-                return result;
-        }
-	
-        /*Copy args into new address space, correctly arranged*/
-	usrsp = (userptr_t)stackptr;
-	userptr_t *usrArgs;
-	usrArgs = kmalloc(numArgs*4);
-	usrArgs[numArgs] = NULL;//null terminate argv
-	for(int i = 0; i < numArgs; i++){   
-		 stringLength = getLen(bigKargs[i]);
-		//decrease sp by size of string at kArgs[i] + null needed to align string to 4
-                usrsp = (userptr_t)((int)usrsp - stringLength - (4-stringLength%4));
-                KASSERT((int)usrsp%4 == 0);
-                result = copyoutstr(bigKargs[i], usrsp, stringLength, NULL);
-                if(result) {
-			for (int j = 0; j < numArgs; j++){
-                               kfree(bigKargs[j]);
-                               bigKargs[j] = NULL;
-			}
-			kfree(usrArgs);
-                        return result;
-                }
-                usrArgs[i] = usrsp; //save each new user address of string 
-	}
-        //push the null-terminated array of the locations of the 
-        //strings in userspace
-        usrsp =(userptr_t)((int)usrsp-(4*(numArgs+1)));
-        result = copyout(usrArgs, usrsp, 4*(numArgs+1));
-
-	if (result) {
-		proc_setas(oldas);
-		as_destroy(as);
-		for(int i = 0; i < numArgs; i++){
-                       kfree(bigKargs[i]);
-                       bigKargs[i] = NULL;
-		}
-		kfree(usrArgs);
-		return result;
-	}
-
-        /* Clean up old address space and kernel heap*/
-        as_destroy(oldas);
-        for(int i = numArgs - 1; i >= 0; i--){
+   /* Create a new address space. */
+   as = as_create();
+   if (as == NULL) {
+       vfs_close(v);
+       for(int i = 0; i < numArgs; i++){
            kfree(bigKargs[i]);
            bigKargs[i] = NULL;
         }
-	kfree(bigKargs);
-	kfree(usrArgs);
-	stackptr = (vaddr_t)usrsp;
-        /* Warp to user mode. */
-        enter_new_process(numArgs, usrsp /*userspace addr of argv*/,
+        return ENOMEM;
+    }
+
+    /* Switch to it and activate it. */
+    /* Save the old address space */
+    oldas = proc_setas(as);
+    as_activate();
+
+    /* Load the executable. */
+    result = load_elf(v, &entrypoint);
+    if (result) { //return to old address space
+        proc_setas(oldas);
+        as_destroy(as); //destroy the new address space
+        for(int i = 0; i < numArgs; i++){
+           kfree(bigKargs[i]);
+           bigKargs[i] = NULL;
+         }
+         execfree((void **)bigKargs);
+         vfs_close(v);
+         return result;
+    }
+
+    /* Done with the file now. */
+    vfs_close(v);
+
+
+    /* Define the user stack in the address space */
+    result = as_define_stack(as, &stackptr);
+    if (result) {
+         proc_setas(oldas);
+         as_destroy(as);
+         for(int i = 0; i < numArgs; i++){
+             kfree(bigKargs[i]);
+         }
+         execfree((void **)bigKargs);
+         return result;
+    }
+
+    /*Copy args into new address space, correctly arranged*/
+    usrsp = (userptr_t)stackptr;
+    for(int i = 0; i < numArgs; i++){   
+       stringLength = getLen(bigKargs[i]);
+       //decrease sp by size of string at kArgs[i] + null needed to align string to 4
+       usrsp = (userptr_t)((int)usrsp - stringLength - (4-stringLength%4));
+       KASSERT((int)usrsp%4 == 0);
+       result = copyoutstr(bigKargs[i], usrsp, stringLength, NULL);
+       if(result) {
+         for(int i = 0; i < numArgs; i++){
+             kfree(bigKargs[i]);
+         }
+         execfree((void**)bigKargs);
+         return result;
+       }
+       kfree(bigKargs[i]);
+       bigKargs[i] = (char*)usrsp; //save each new user address of string 
+     }
+     bigKargs[numArgs] = NULL;
+     //push the null-terminated array of the locations of the 
+     //strings in userspace
+     usrsp =(userptr_t)((int)usrsp-(4*(numArgs+1)));
+     result = copyout(bigKargs, usrsp, 4*(numArgs+1));
+
+     if (result) {
+        proc_setas(oldas);
+        as_destroy(as);
+        execfree((void **)bigKargs);
+        return result;
+     }
+
+     /* Clean up old address space and kernel heap*/
+     as_destroy(oldas);
+     for(int i = numArgs - 1; i >= 0; i--){
+         bigKargs[i] = NULL;
+     }
+     execfree((void **)bigKargs);
+     stackptr = (vaddr_t)usrsp;
+     /* Warp to user mode. */
+     enter_new_process(numArgs, usrsp /*userspace addr of argv*/,
                           NULL /*userspace addr of environment*/,
                           (vaddr_t)usrsp, entrypoint);
 
-        /* enter_new_process does not return. */
-        panic("enter_new_process returned\n");
-        return result;
+     /* enter_new_process does not return. */
+     panic("enter_new_process returned\n");
+     return result;
 }
 
                                       
