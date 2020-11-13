@@ -95,19 +95,15 @@
  /*Free Filetable (Might be used later on)*/
  void free_ft(struct ft *ft){
    (void)ft;
-   for(int i = 0; i < OPEN_MAX; i++){
-     
-      sys_close(i);
-   }
-   /*for(int i = 0; i < __OPEN_MAX; i++){
-     if(ft->entry[i] != NULL){
-       vfs_close(ft->entry[i]->filevn);
-       lock_destroy(ft->entry[i]->lockfd);
-       kfree(ft->entry[i]);
-       ft->entry[i] = NULL;
-     }
-   }
-   kfree(ft);*/
+   //for(int i = 0; i < __OPEN_MAX; i++){
+   //  if(ft->entry[i] != NULL){
+   //    vfs_close(ft->entry[i]->filevn);
+   //    lock_destroy(ft->entry[i]->lockfd);
+   //    kfree(ft->entry[i]);
+   //    ft->entry[i] = NULL;
+   //  }
+  // }
+   //kfree(ft);
  }
  
  /*
@@ -662,6 +658,7 @@ sys_execv(const char *progname, char **args)
                   kfree(bigKargs[j]);
                   bigKargs[j] = NULL;
                }
+               execfree((void **)bigKargs);
                return result;
              }
              if((signed int)ARG_MAX - (signed int)totalLength - (signed int)stringLength < 0){
@@ -669,6 +666,7 @@ sys_execv(const char *progname, char **args)
                     kfree(bigKargs[j]);
                     bigKargs[j] = NULL;
                  }
+                 execfree((void **)bigKargs);
                  return E2BIG;
               }
 	     }
@@ -684,6 +682,7 @@ sys_execv(const char *progname, char **args)
                 kfree(bigKargs[i]);
                 bigKargs[i] = NULL;
              }
+             execfree((void **)bigKargs);
              return E2BIG;
         }
    }
@@ -698,6 +697,7 @@ sys_execv(const char *progname, char **args)
            kfree(bigKargs[i]);
            bigKargs[i] = NULL;
         }
+        execfree((void **)bigKargs);
         return ENOMEM;
     }
 
