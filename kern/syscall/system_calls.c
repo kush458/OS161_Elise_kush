@@ -122,11 +122,11 @@
      kfree(fn);
      return p;  
    } 
-   //char *retstr = (char *)kmalloc(sizeof(char) * 255);
+   /*Check if the file is a sem file*/
    char substr[5];
    memcpy(substr, &filename[0], 4);
    char *str1 = kstrdup("sem:\0");
-   //retstr = strchr((char *)filename , ':');
+
    struct ft *ft = curproc->proc_ft; //Filetable of current process as declared in proc.h
    /*Find a free entry (An entry == NULL) in file table*/
    int fd;
@@ -152,7 +152,7 @@
    ft->entry[fd]->offset = 0;
    ft->entry[fd]->status_flag = flags;
    ft->entry[fd]->refcount = 1;
-   if(strcmp(str1, substr)==0){ //retstr != NULL
+   if(strcmp(str1, substr)==0){ /*Check if the file is a semfile*/
      ft->entry[fd]->is_semfd = true;
    }else{
      ft->entry[fd]->is_semfd = false;  
@@ -202,16 +202,19 @@
    
    //void *buf1 = kmalloc(4*buflen);
    if(ftr->entry[fd]->is_semfd == false){
-   int p = copyout(buf1, buf, buflen);
-   if(p){
-   lock_release(ftr->entry[fd]->lockfd); /*lock release*/
-   return p;
-   } }
+     int p = copyout(buf1, buf, buflen);
+     if(p){
+       kfree(buf1);
+       lock_release(ftr->entry[fd]->lockfd); /*lock release*/
+       return p;
+     } 
+   }
   
    *retval = buflen - read_uio.uio_resid; 
    /*Increment the file offset by retval*/
-   ftr->entry[fd]->offset = readoffset + *retval;
+   ftr->entry[fd]->offset = read_uio.uio_offset;//readoffset + *retval;
    lock_release(ftr->entry[fd]->lockfd); /*lock release*/
+   kfree(buf1);
    return 0;
  }
  /*
@@ -239,11 +242,12 @@
    //copyin
    void *buf1 = kmalloc(4*buflen);
    if(ftw->entry[fd]->is_semfd == false){
-   int p = copyin(buf, buf1, buflen);
-   if(p){
-   kfree(buf1);
-   return p;
-   } }
+     int p = copyin(buf, buf1, buflen);
+     if(p){
+       kfree(buf1);
+       return p;
+     } 
+   }
    lock_acquire(ftw->entry[fd]->lockfd); /*lock acquire*/
    /*As in uio.h(line 137) initialize a uio*/
    struct uio write_uio;
@@ -327,11 +331,10 @@
    if(!VOP_ISSEEKABLE(ftl->entry[fd]->filevn)){ /*Check lseek on device*/
      return ESPIPE;
    }
-   
    /*Now change the offset (ftl->entry[fd]->offset)*/
+   lock_acquire(ftl->entry[fd]->lockfd); /*lock acquire*/
    off_t curpos = ftl->entry[fd]->offset;
    off_t newpos;
-   lock_acquire(ftl->entry[fd]->lockfd); /*lock acquire*/
    if(whence == SEEK_SET){
       newpos = pos;
    }
@@ -376,7 +379,7 @@
    if(ftdup->entry[oldfd] == NULL){
      return EBADF;
    }
-   
+   lock_acquire(ftdup->entry[oldfd]->lockfd); /*lock acquire*/
    /*If newfd is open then close it as per man pages*/
    if(ftdup->entry[newfd] != NULL && ftdup->entry[newfd]->filevn != NULL){
      int ret = sys_close(newfd);
@@ -386,6 +389,7 @@
    ftdup->entry[newfd] = ftdup->entry[oldfd]; 
    
    *retval = newfd;
+   lock_release(ftdup->entry[oldfd]->lockfd); /*lock release*/
    return 0;
  }
  /*

@@ -34,7 +34,7 @@
 #include<kern/limits.h>
 #include <cdefs.h> /* for __DEAD */
 struct trapframe; /* from <machine/trapframe.h> */
-struct proc *proc_ids[__PID_MAX];
+struct proc *proc_ids[__PID_MAX]; /*Table for all procs corresponding to procids*/
 struct lock *kmallock;
 void *execmem;
 /*
