@@ -655,18 +655,11 @@ sys_execv(const char *progname, char **args)
              result = copyinstr((userptr_t)args[i], &argString[offset], __ARG_MAX, &stringLength);
              if(result){
                argfree(argString);
-               for(int j = i-1; j >= 0; j--){
-                  kfree(bigKargs[j]);
-                  bigKargs[j] = NULL;
-               }
                addrfree((void **)bigKargs);
                return result;
              }
              if((signed int)ARG_MAX - (signed int)totalLength - (signed int)stringLength < 0){
-                 for(int j = i - 1; j >= 0; j--){
-                    kfree(bigKargs[j]);
-                    bigKargs[j] = NULL;
-                 }
+                 argfree((void *)argString);
                  addrfree((void **)bigKargs);
                  return E2BIG;
               }
@@ -679,10 +672,7 @@ sys_execv(const char *progname, char **args)
               totalLength += stringLength;	
         }
         else{ //if go over ARG_MAX
-	    for (int i = 0; i < numArgs; i++){
-                kfree(bigKargs[i]);
-                bigKargs[i] = NULL;
-             }
+	    argfree((void *)argString);
              addrfree((void **)bigKargs);
              return E2BIG;
         }
@@ -694,10 +684,7 @@ sys_execv(const char *progname, char **args)
    as = as_create();
    if (as == NULL) {
        vfs_close(v);
-       for(int i = 0; i < numArgs; i++){
-           kfree(bigKargs[i]);
-           bigKargs[i] = NULL;
-        }
+       argfree((void *)argString);
         addrfree((void **)bigKargs);
         return ENOMEM;
     }
@@ -712,10 +699,7 @@ sys_execv(const char *progname, char **args)
     if (result) { //return to old address space
         proc_setas(oldas);
         as_destroy(as); //destroy the new address space
-        for(int i = 0; i < numArgs; i++){
-           kfree(bigKargs[i]);
-           bigKargs[i] = NULL;
-         }
+         argfree((void *)argString);
          addrfree((void **)bigKargs);
          vfs_close(v);
          return result;
@@ -730,9 +714,7 @@ sys_execv(const char *progname, char **args)
     if (result) {
          proc_setas(oldas);
          as_destroy(as);
-         for(int i = 0; i < numArgs; i++){
-             kfree(bigKargs[i]);
-         }
+         argfree((void *)argString);
          addrfree((void **)bigKargs);
          return result;
     }
@@ -746,9 +728,7 @@ sys_execv(const char *progname, char **args)
        KASSERT((int)usrsp%4 == 0);
        result = copyoutstr(bigKargs[i], usrsp, stringLength, NULL);
        if(result) {
-         for(int i = 0; i < numArgs; i++){
-             //kfree(bigKargs[i]);
-         }
+         argfree((void *)argString);
          addrfree((void**)bigKargs);
          return result;
        }
@@ -764,15 +744,13 @@ sys_execv(const char *progname, char **args)
      if (result) {
         proc_setas(oldas);
         as_destroy(as);
+        argfree((void *)argString);
         addrfree((void **)bigKargs);
         return result;
      }
 
      /* Clean up old address space and kernel heap*/
      as_destroy(oldas);
-     for(int i = numArgs - 1; i >= 0; i--){
-         bigKargs[i] = NULL;
-     }
      argfree((void *)argString);
      addrfree((void **)bigKargs);
      stackptr = (vaddr_t)usrsp;
