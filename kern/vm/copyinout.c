@@ -35,6 +35,7 @@
 #include <current.h>
 #include <vm.h>
 #include <copyinout.h>
+#include <syscall.h>
 
 /*
  * User/kernel memory copying functions.
@@ -318,4 +319,21 @@ copyoutstr(const char *src, userptr_t userdest, size_t len, size_t *actual)
 
 	curthread->t_machdep.tm_badfaultfunc = NULL;
 	return result;
+}
+
+void *
+execmalloc()
+{
+   lock_acquire(kmallock);
+   return execmem;
+}
+
+void
+execfree(void **memptr)
+{
+  if(memptr == execmem){
+  lock_release(kmallock);
+  *memptr = NULL;
+  }
+  return;
 }
