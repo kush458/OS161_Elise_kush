@@ -321,7 +321,7 @@
    if(fd < 0 || fd >= __OPEN_MAX){
      return EBADF; /*Bad File number*/
    }
-   if(ftl->entry[fd] == NULL || ftl->entry[fd]->filevn == NULL){
+   if(ftl->entry[fd] == NULL || ftl->entry[fd]->filevn == NULL || ftl->entry[fd]->refcount == 0){
      return EBADF;
    }
    //vnode 
