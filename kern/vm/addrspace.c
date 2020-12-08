@@ -50,7 +50,7 @@ struct ppages ** pagetable = NULL;
 
  void vm_bootstrap(void)
  {
-	kprintf("hello");
+         kprintf("hello");
          spinlock_init(mem_lock);
 	 paddr_t firstaddr = ram_getfirstfree();
 	 paddr_t lastaddr = ram_getsize();
@@ -59,7 +59,7 @@ struct ppages ** pagetable = NULL;
 	 unsigned long totalPages = (unsigned long)(lastaddr-firstaddr)/PAGE_SIZE;
 	 KASSERT(sizeof(*pagetable[0]) == sizeof(*freelist));
 	 //find the amount of pages needed to store the core map
-         float pages = (float)((totalPages+1)*sizeof(*freelist))/(float)PAGE_SIZE;
+   float pages = (float)((totalPages+1)*sizeof(*freelist))/(float)PAGE_SIZE;
 	 unsigned long pagesNeeded = (unsigned long)pages;
 	 if(pages - (float)pagesNeeded >= .5){
 		 pagesNeeded += 1;
@@ -200,34 +200,33 @@ void free_kpages(vaddr_t addr)
 	while(curr->next != NULL){
 	  if(curr->vpn == addr){
 	    KASSERT(curr->numPages != 0);
-            if(curr == alloclist){
-            front = 1;
-            }
-	    for(int i = 0; i < curr->numPages; i++){
-              if(front == 1){
-                pagetable[curproc->pid] = curr->next;
-                curr->next = freelist;
-                freelist = curr;
-                freelist->numPages = 0;
-                freelist->vpn = -1;
-                curr = pagetable[curproc->pid];
-                //freelist->pid = NULL;
-              }
-              else
-              {
-                prev->next = curr->next;
-	        curr->next = freelist;
-	        freelist = curr;
-	        freelist->numPages = 0;
-	        freelist->vpn = -1;
-	        //freelist->pid = NULL;
-	         curr = prev->next;
-             }
-	   }
-	return;
-        }
-      curr = curr->next;
+      if(curr == alloclist){
+        front = 1;
       }
+	    for(int i = 0; i < curr->numPages; i++){
+         if(front == 1){
+            pagetable[curproc->pid] = curr->next;
+            curr->next = freelist;
+            freelist = curr;
+            freelist->numPages = 0;
+            freelist->vpn = -1;
+            curr = pagetable[curproc->pid];
+            //freelist->pid = NULL;
+         }
+         else{
+            prev->next = curr->next;
+            curr->next = freelist;
+	          freelist = curr;
+	          freelist->numPages = 0;
+	          freelist->vpn = -1;
+	          //freelist->pid = NULL;
+	          curr = prev->next;
+         }
+	    }
+      return;
+    }
+  curr = curr->next;
+  }
   kprintf("Not in processes alloclist");
   return;
 }
@@ -293,15 +292,22 @@ as_destroy(struct addrspace *as)
 void
 as_activate(void)
 {
+  int i, spl;
 	struct addrspace *as;
 
 	as = proc_getas();
 	if (as == NULL) {
-		/*
-		 * Kernel thread without an address space; leave the
-		 * prior address space in place.
-		 */
 		return;
+	}
+
+	/* Disable interrupts on this CPU while frobbing the TLB. */
+	spl = splhigh();
+
+	for (i=0; i<NUM_TLB; i++) {
+		tlb_write(TLBHI_INVALID(i), TLBLO_INVALID(), i);
+	}
+
+	splx(spl);
 	}
 
 	/*
