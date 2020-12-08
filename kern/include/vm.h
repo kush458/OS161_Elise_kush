@@ -60,7 +60,7 @@ void vm_bootstrap(void);
 int vm_fault(int faulttype, vaddr_t faultaddress);
 
 /* Allocate/free kernel heap pages (called by kmalloc/kfree) */
-vaddr_t alloc_ppages(void);
+struct ppages * alloc_ppage(struct ppages *alloclist);
 int freeppage(vaddr_t vaddr);
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
