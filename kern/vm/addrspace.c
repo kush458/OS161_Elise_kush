@@ -50,6 +50,7 @@ struct ppages ** pagetable = NULL;
 
  void vm_bootstrap(void)
  {
+	kprintf("hello");
          spinlock_init(mem_lock);
 	 paddr_t firstaddr = ram_getfirstfree();
 	 paddr_t lastaddr = ram_getsize();
@@ -71,6 +72,7 @@ struct ppages ** pagetable = NULL;
 	 paddr_t pagestart = (firstaddr + pagesNeeded*PAGE_SIZE);
 	 spinlock_acquire(mem_lock);
 	 //initialize all memory as free
+         kprintf("%i", (int)totalPages); 
 	 for(unsigned int i = 0; i < totalPages; i++){
 		  KASSERT(pagestart + i*PAGE_SIZE < lastaddr- PAGE_SIZE);
 	    freelist->ppn = pagestart + i*PAGE_SIZE;
