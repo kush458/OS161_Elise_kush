@@ -36,56 +36,203 @@
 //wrap the free and alloced mem structures in a spinlock
 //possibly slow if search time takes long(initially when no alloced mem)
 static struct spinlock mem_lock = SPINLOCK_INITIALIZER;
+
 /*
  * Note! If OPT_DUMBVM is set, as is the case until you start the VM
  * assignment, this file is not compiled or linked or in any way
  * used. The cheesy hack versions in dumbvm.c are used instead.
  */
-struct freeppages *freelist;
-struct allocppages *alloclist;
+struct ppages *freelist = NULL;
+struct ppages pagetable *[] = NULL;
+
  void vm_bootstrap(void)
  {
-	 /*
 	 paddr_t firstaddr = ram_getfirstfree();
 	 paddr_t lastaddr = ram_getsize();
 	 KASSERT(firstaddr != 0);
 	 KASSERT(lastaddr != 0);
-	 unsigned long totalpages = (unsigned long)(lastaddr-firstaddr)/PAGE_SIZE;
-	 spinlock_acquire(&mem_lock);
-	 for(int i = 0; i < totalpages; i++){
-	 */
-
+	 unsigned long totalPages = (unsigned long)(lastaddr-firstaddr)/PAGE_SIZE;
+	 KASSERT(sizeof(*alloclist) == sizeof(*freelist));
+	 //find the amount of pages needed to store the core map
+   unsigned float pages = (unsigned float)((totalPages+1)*sizeof(*freelist))/(unsigned float)PAGE_SIZE;
+	 unsigned long pagesNeeded = (unsigned long)pages;
+	 if(pages - (unsigned float)pagesNeeded >= .5){
+		 pagesNeeded += 1;
 	 }
-
-
+	 KASSERT(totalPages-pagesNeeded > 0);
+	 totalPages = totalPages-pagesNeeded;
+	 //store the coremap at the first available free address
+	 freelist = firstaddr;
+	 //where the physical pages start(after coremap)
+	 paddr_t pagestart = firstaddr + pagesNeeded*PAGE_SIZE;
+	 spinlock_acquire(&mem_lock);
+	 //initialize all memory as free
+	 for(int i = 0; i < totalPages; i++){
+		  KASSERT(pagestart + i*PAGE_SIZE < lastaddr- PAGESIZE);
+	    freelist->ppn = pagestart + i*PAGE_SIZE;
+			freelist->numPages = 0;
+			freelist->vpn = NULL;
+			//freelist->pid = NULL;
+			KASSERT(firstaddr +(i+1)*sizeof(*freelist) < pagestart-sizeof(*alloclist));
+			if(i == totalPages-1){//last entry to coremap
+				freelist->next = NULL;
+			}
+			else{
+			  freelist->next = firstaddr + (i+1)*sizeof(freelist);
+			  freelist = freelist->next;
+		  }
+	 }
+	 //initialize empty alloclist dummy start, located where initialized freelist ends
+	 for(int i = 0; i < __PID_MAX; i++){
+	   pagetable[i] = firstaddr + totalPages*sizeof(*freelist) + i*sizeof(*freelist);
+	   pagetable[i]->next = NULL;
+	   pagetable[i]->ppn = NULL;
+	   pagetable[i]->vpn = NULL;
+	   //pagetable[i]->pid = NULL;
+	   pagetbale[i]->numPages = 0;
+   }
 	 spinlock_release(&mem_lock);
+	 return;
 
  }
 
  int vm_fault(int faulttpye, vaddr_t faultaddress)
  {
+(void)faulttype;
+(void)faultaddress;
+return 0;
 
+ }
 
+ paddr_t alloc_ppage(struct ppages *alloclist){
+	 KASSERT(freelist->next != NULL); //no page eviction
+	 temp = freelist->next;
+	 freelist->next = alloclist;
+	 alloclist = freelist;
+	 KASSERT(alloclist->ppn == freelist->ppn);
+	 KASSERT(ppn!=0);
+	 alloclist->vpn = PADDR_TO_KVADDR(ppn);
+	 //alloclist->pid = curproc;
+   alloclist->numPages = 1;
+	 freelist = temp;
+   pagetable[curproc] = alloclist;
+	 return alloclist;
  }
 
 vaddr_t alloc_kpages(unsigned npages)
 {
-
+ struct ppages *alloclist = pagetable[curproc];
+ if(freelist == NULL || alloclist == NULL){//havent called vm_boostrap yet
+	 return ram_stealmem(npages);//like dumbvm
+ }
+ else{
+	 struct ppages *temp = NULL;
+	 if(alloclist->ppn == NULL){//if this is first allocation
+		 alloclist = freelist;
+		 KASSERT(alloclist->ppn == freelist->ppn);
+		 KASSERT(freelist->next != NULL); //no page eviction
+		 KASSERT(ppn != 0);
+		 alloclist->vpn = PADDR_TO_KVADDR(ppn);
+		 //alloclist->pid = curproc;
+		 freelist = freelist->next;
+		 KASSERT(alloclist != freelist);
+		 alloclist->next = NULL;
+     pagetable[curproc] = alloclist;
+		 if(npages == 1){
+			 alloclist->numPages = 1;
+		 }
+		 else {
+		   alloclist->numPages = 0;
+	   }
+	 }
+	 else {
+		alloclist = allocppage(alloclist);
+		if(npages == 1){
+ 		  alloclist->numPages = npages;
+ 	  }
+ 	  else{
+ 		  alloclist->numPages = 0;
+ 	  }
+	 }
+	 if(npages != 1){
+	   for(int i = 1; i < npages; i++){
+			 KASSERT(freelist->next != NULL);//no page eviction
+		   temp = freelist->next;
+			 freelist->next = alloclist;
+			 alloclist = freelist;
+			 KASSERT(alloclist->ppn === freelist->ppn);
+			 KASSERT(ppn!=0);
+			 alloclist->vpn = PADDR_TO_KVADDR(ppn);
+			 //alloclist->pid = curproc;
+			 freelist = temp;
+       pagetable[curproc] = alloclist;
+			 if(i == npages-1){
+				 alloclist->numPages = npages;
+			 }
+			 else{
+				 alloclist->numPages = 0;
+			 }
+		 }
+	 }
+   KASSERT(pagetable[curproc] == alloclist);
+	 KASSERT(alloclist->ppn != 0);
+	 return PADDR_TO_KVADDR(alloclist->ppn);
+ }
 }
 
 void free_kpages(vaddr_t addr)
 {
-
+  struct ppages *alloclist = pagetable[curproc];
+  int front = 0;
+  if(freelist == NULL || alloclist == NULL){ //havent been through vm_boostrap
+		return; //do nothing(like dumbvm, leak memory)
+	}
+		struct ppage *curr = alloclist;
+		struct ppage *prev = NULL;
+		while(curr->next != NULL){
+			if(curr->vpn == addr){
+				  KASSERT(curr->numPages != 0);
+          if(curr == alloclist){
+            front = 1;
+          }
+				  for(int i = 0; i < curr->numPages; i++){
+            if(front == 1){
+              pagetable[procid] = curr->next;
+              curr->next = freelist;
+              freelist = curr;
+              freelist->numPages = 0
+              freelist->vpn = NULL;
+              curr = pagetable[procid];
+              //freelist->pid = NULL;
+            }
+            else{
+					   prev->next = curr->next;
+				     curr->next = freelist;
+					   freelist = curr;
+					   freelist->numPages = 0;
+					   freelist->vpn = NULL;
+					   //freelist->pid = NULL;
+					   curr = prev->next;
+            }
+				  }
+				return;
+			}
+      curr = curr->next;
+		}
+	kprintf("Not in processes alloclist");
+  kprintf(curproc);
+  return;
 }
 
 void vm_tlbshootdown_all(void)
 {
-
+ return;
 }
 
-void vm_tlbshootdown(const struct tlbshootdown *)
+void vm_tlbshootdown(const struct tlbshootdown *ts)
 {
-
+	(void)ts;
+  return;
 }
 
 struct addrspace *

@@ -32,22 +32,18 @@
 
 /*
  * VM system-related definitions.
- *
- * You'll probably want to add stuff here.
  */
-struct freeppages
+
+ /*COREMAP structure*/
+struct ppages
 {
-    struct freeppages *next;
+    struct ppages *next;
     paddr_t ppn;
-    int numPages;
+    vaddr_t vpn;
+    //pid_t pid;
+    long numPages;
 };
 
-struct allocppages
-{
-    struct allocppages *next;
-    paddr_t ppn;
-    int numPages;
-};
 
 #include <machine/vm.h>
 
@@ -57,19 +53,21 @@ struct allocppages
 #define VM_FAULT_READONLY    2    /* A write to a readonly page was attempted*/
 
 
-/* Initialization function */
+/* Initialiazation function */
 void vm_bootstrap(void);
 
 /* Fault handling function called by trap code */
 int vm_fault(int faulttype, vaddr_t faultaddress);
 
 /* Allocate/free kernel heap pages (called by kmalloc/kfree) */
+vaddr_t alloc_ppages(void);
+int freeppage(vaddr_t vaddr);
 vaddr_t alloc_kpages(unsigned npages);
 void free_kpages(vaddr_t addr);
 
 /* TLB shootdown handling called from interprocessor_interrupt */
 void vm_tlbshootdown_all(void);
-void vm_tlbshootdown(const struct tlbshootdown *);
+void vm_tlbshootdown(const struct tlbshootdown *ts);
 
 
 #endif /* _VM_H_ */

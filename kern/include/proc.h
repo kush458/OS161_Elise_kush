@@ -42,6 +42,7 @@
 struct addrspace;
 struct vnode;
 struct ft; //Asst4, filetable
+
 /*
  * Process structure.
  */
