@@ -32,10 +32,13 @@
 #include <lib.h>
 #include <addrspace.h>
 #include <vm.h>
+#include <spinlock.h>
+#include <current>
+#include <proc.h>
 
 //wrap the free and alloced mem structures in a spinlock
 //possibly slow if search time takes long(initially when no alloced mem)
-static struct spinlock mem_lock = SPINLOCK_INITIALIZER;
+struct spinlock mem_lock;
 
 /*
  * Note! If OPT_DUMBVM is set, as is the case until you start the VM
@@ -47,6 +50,7 @@ struct ppages pagetable *[] = NULL;
 
  void vm_bootstrap(void)
  {
+  spinlock_init(mem_lock);
 	 paddr_t firstaddr = ram_getfirstfree();
 	 paddr_t lastaddr = ram_getsize();
 	 KASSERT(firstaddr != 0);
@@ -179,7 +183,7 @@ vaddr_t alloc_kpages(unsigned npages)
 	 return PADDR_TO_KVADDR(alloclist->ppn);
  }
 }
-
+static
 void free_kpages(vaddr_t addr)
 {
   struct ppages *alloclist = pagetable[curproc];
