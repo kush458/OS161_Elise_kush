@@ -33,11 +33,60 @@
 #include <addrspace.h>
 #include <vm.h>
 
+//wrap the free and alloced mem structures in a spinlock
+//possibly slow if search time takes long(initially when no alloced mem)
+static struct spinlock mem_lock = SPINLOCK_INITIALIZER;
 /*
  * Note! If OPT_DUMBVM is set, as is the case until you start the VM
  * assignment, this file is not compiled or linked or in any way
  * used. The cheesy hack versions in dumbvm.c are used instead.
  */
+struct freeppages *freelist;
+struct allocppages *alloclist;
+ void vm_bootstrap(void)
+ {
+	 /*
+	 paddr_t firstaddr = ram_getfirstfree();
+	 paddr_t lastaddr = ram_getsize();
+	 KASSERT(firstaddr != 0);
+	 KASSERT(lastaddr != 0);
+	 unsigned long totalpages = (unsigned long)(lastaddr-firstaddr)/PAGE_SIZE;
+	 spinlock_acquire(&mem_lock);
+	 for(int i = 0; i < totalpages; i++){
+	 */
+
+	 }
+
+
+	 spinlock_release(&mem_lock);
+
+ }
+
+ int vm_fault(int faulttpye, vaddr_t faultaddress)
+ {
+
+
+ }
+
+vaddr_t alloc_kpages(unsigned npages)
+{
+
+}
+
+void free_kpages(vaddr_t addr)
+{
+
+}
+
+void vm_tlbshootdown_all(void)
+{
+
+}
+
+void vm_tlbshootdown(const struct tlbshootdown *)
+{
+
+}
 
 struct addrspace *
 as_create(void)
@@ -178,4 +227,3 @@ as_define_stack(struct addrspace *as, vaddr_t *stackptr)
 
 	return 0;
 }
-

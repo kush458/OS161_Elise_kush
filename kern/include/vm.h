@@ -35,7 +35,19 @@
  *
  * You'll probably want to add stuff here.
  */
+struct freeppages
+{
+    struct freeppages *next;
+    paddr_t ppn;
+    int numPages;
+};
 
+struct allocppages
+{
+    struct allocppages *next;
+    paddr_t ppn;
+    int numPages;
+};
 
 #include <machine/vm.h>
 
