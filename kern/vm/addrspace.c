@@ -35,6 +35,9 @@
 #include <spinlock.h>
 #include <current.h>
 #include <proc.h>
+#include <spl.h>
+#include <mips/tlb.h>
+
 
 //wrap the free and alloced mem structures in a spinlock
 //possibly slow if search time takes long(initially when no alloced mem)
@@ -47,55 +50,64 @@ struct spinlock *mem_lock;
  */
 struct ppages *freelist = NULL;
 struct ppages ** pagetable = NULL;
-
+paddr_t firstaddr;
+paddr_t lastaddr;
+  
  void vm_bootstrap(void)
  {
-         kprintf("hello");
-         spinlock_init(mem_lock);
-	 paddr_t firstaddr = ram_getfirstfree();
-	 paddr_t lastaddr = ram_getsize();
+	 lastaddr = ram_getsize();
+         firstaddr = ram_getfirstfree();
 	 KASSERT(firstaddr != 0);
 	 KASSERT(lastaddr != 0);
-	 unsigned long totalPages = (unsigned long)(lastaddr-firstaddr)/PAGE_SIZE;
+	 mem_lock = (struct spinlock *)PADDR_TO_KVADDR(firstaddr);
+	 spinlock_init(mem_lock);
+	 long totalPages = (long)(lastaddr-firstaddr)/PAGE_SIZE;
 	 KASSERT(sizeof(*pagetable[0]) == sizeof(*freelist));
 	 //find the amount of pages needed to store the core map
-   float pages = (float)((totalPages+1)*sizeof(*freelist))/(float)PAGE_SIZE;
-	 unsigned long pagesNeeded = (unsigned long)pages;
-	 if(pages - (float)pagesNeeded >= .5){
-		 pagesNeeded += 1;
-	 }
+	 long pagesNeeded = (totalPages*sizeof(*freelist)+(__PID_MAX/16)*sizeof(freelist))/PAGE_SIZE + 1;
 	 KASSERT(totalPages-pagesNeeded > 0);
 	 totalPages = totalPages-pagesNeeded;
-	 //store the coremap at the first available free address
-	 freelist = (struct ppages *)firstaddr;
-	 //where the physical pages start(after coremap)
+	 //where the physical pages starts(after spinlock and coremap)
 	 paddr_t pagestart = (firstaddr + pagesNeeded*PAGE_SIZE);
+
 	 spinlock_acquire(mem_lock);
+	 //waited until pagestart was set to increase firstaddr
+	 firstaddr += sizeof(*mem_lock);
 	 //initialize all memory as free
-         kprintf("%i", (int)totalPages); 
-	 for(unsigned int i = 0; i < totalPages; i++){
-		  KASSERT(pagestart + i*PAGE_SIZE < lastaddr- PAGE_SIZE);
-	    freelist->ppn = pagestart + i*PAGE_SIZE;
-			freelist->numPages = 0;
-			freelist->vpn = -1;
-			//freelist->pid = NULL;
-			KASSERT(firstaddr +(i+1)*sizeof(*freelist) < pagestart-sizeof(*freelist));
-			if(i == totalPages-1){//last entry to coremap
-				freelist->next = NULL;
-			}
-			else{
-			  freelist->next = (struct ppages *)(firstaddr + (i+1)*sizeof(freelist));
-			  freelist = freelist->next;
-		  }
+	 freelist = (struct ppages *)firstaddr;
+         kprintf("%i", (int)totalPages);
+	 struct ppages * vflist;
+	 for(int i = 0; i < totalPages; i++){
+            vflist = (struct ppages *)PADDR_TO_KVADDR((paddr_t)freelist);
+            KASSERT(pagestart + i*PAGE_SIZE <= lastaddr-PAGE_SIZE);
+            vflist->ppn = (paddr_t)(pagestart + i*PAGE_SIZE);
+            vflist->numPages = 0;
+            vflist->vpn = -1;
+            vflist->pid = -1;
+            KASSERT(firstaddr +(i+1)*sizeof(*freelist) < pagestart-sizeof(*freelist));
+           if(i == totalPages-1){//last entry to coremap
+              vflist->next = NULL;
+           }
+           else{
+             vflist->next = (struct ppages *)(firstaddr + (i+1)*sizeof(*freelist));
+             freelist = vflist->next;
+           }
 	 }
+         struct ppages *dummyStart;
+         struct ppages *vdStart;
+         dummyStart = (struct ppages*)(freelist + totalPages*sizeof(*freelist));
+         vdStart = (struct ppages *)PADDR_TO_KVADDR((paddr_t)dummyStart);
+         vdStart->next = NULL;
+         vdStart->ppn = -1;
+         vdStart->vpn = -1;
+         vdStart->pid = -1;
+	 
 	 //initialize empty alloclist dummy start, located where initialized freelist ends
-	 for(int i = 0; i < __PID_MAX; i++){
-	   pagetable[i] = (struct ppages *)(firstaddr + totalPages*sizeof(*freelist) + i*sizeof(*freelist));
-	   pagetable[i]->next = NULL;
-	   pagetable[i]->ppn = 0;
-	   pagetable[i]->vpn = -1;
-	   //pagetable[i]->pid = NULL;
-	   pagetable[i]->numPages = 0;
+         pagetable = (struct ppages **)(firstaddr + totalPages*sizeof(*freelist));
+	 struct ppages **vpt = (struct ppages**)PADDR_TO_KVADDR((paddr_t)pagetable);
+         
+	 for(int i = 0; i < __PID_MAX/16; i++){
+	   vpt[i] = dummyStart;
    }
 	 spinlock_release(mem_lock);
 	 return;
@@ -119,7 +131,7 @@ return 0;
 	 KASSERT(alloclist->ppn == freelist->ppn);
 	 KASSERT(alloclist->ppn!=0);
 	 alloclist->vpn = PADDR_TO_KVADDR(alloclist->ppn);
-	 //alloclist->pid = curproc;
+	 alloclist->pid = curproc->pid;
          alloclist->numPages = 1;
 	 freelist = temp;
          pagetable[curproc->pid] = alloclist;
@@ -128,11 +140,13 @@ return 0;
 
 vaddr_t alloc_kpages(unsigned npages)
 {
- struct ppages *alloclist = pagetable[curproc->pid];
- if(freelist == NULL || alloclist == NULL){//havent called vm_boostrap yet
-	 return ram_stealmem(npages);//like dumbvm
+ if(freelist == NULL){//havent called vm_boostrap yet
+   paddr_t pa = ram_stealmem(npages);
+   KASSERT(pa != 0);  
+   return PADDR_TO_KVADDR(pa);//like dumbvm
  }
  else{
+         struct ppages *alloclist = pagetable[curproc->pid/16];
 	 struct ppages *temp = NULL;
 	 if(alloclist->ppn == 0){//if this is first allocation
 		 alloclist = freelist;
@@ -140,11 +154,11 @@ vaddr_t alloc_kpages(unsigned npages)
 		 KASSERT(freelist->next != NULL); //no page eviction
 		 KASSERT(alloclist->ppn != 0);
 		 alloclist->vpn = PADDR_TO_KVADDR(alloclist->ppn);
-		 //alloclist->pid = curproc;
+		 alloclist->pid = curproc->pid;
 		 freelist = freelist->next;
 		 KASSERT(alloclist != freelist);
 		 alloclist->next = NULL;
-                 pagetable[curproc->pid] = alloclist;
+                 pagetable[curproc->pid/16] = alloclist;
 		 if(npages == 1){
 			 alloclist->numPages = 1;
 		 }
@@ -170,9 +184,9 @@ vaddr_t alloc_kpages(unsigned npages)
 	      KASSERT(alloclist->ppn == freelist->ppn);
 	      KASSERT(alloclist->ppn!=0);
 	      alloclist->vpn = PADDR_TO_KVADDR(alloclist->ppn);
-	      //alloclist->pid = curproc;
+	      alloclist->pid = curproc->pid;
 	      freelist = temp;
-              pagetable[curproc->pid] = alloclist;
+              pagetable[curproc->pid/16] = alloclist;
 	      if(i == npages-1){
 		 alloclist->numPages = npages;
 	      }
@@ -181,7 +195,7 @@ vaddr_t alloc_kpages(unsigned npages)
 	      }
 	   }
 	 }
-         KASSERT(pagetable[curproc->pid] == alloclist);
+         KASSERT(pagetable[curproc->pid/16] == alloclist);
 	 KASSERT(alloclist->ppn != 0);
 	 return PADDR_TO_KVADDR(alloclist->ppn);
  }
@@ -190,28 +204,28 @@ vaddr_t alloc_kpages(unsigned npages)
 
 void free_kpages(vaddr_t addr)
 {
-  struct ppages *alloclist = pagetable[curproc->pid];
   int front = 0;
-  if(freelist == NULL || alloclist == NULL){ //havent been through vm_boostrap
+  if(freelist == NULL){ //havent been through vm_boostrap
 		return; //do nothing(like dumbvm, leak memory)
   }
+	struct ppages *alloclist = pagetable[curproc->pid/16];
 	struct ppages *curr = alloclist;
 	struct ppages *prev = NULL;
 	while(curr->next != NULL){
-	  if(curr->vpn == addr){
+	  if(curr->vpn == addr && curproc->pid == curr->pid){
 	    KASSERT(curr->numPages != 0);
       if(curr == alloclist){
         front = 1;
       }
 	    for(int i = 0; i < curr->numPages; i++){
          if(front == 1){
-            pagetable[curproc->pid] = curr->next;
+            pagetable[curproc->pid/16] = curr->next;
             curr->next = freelist;
             freelist = curr;
             freelist->numPages = 0;
             freelist->vpn = -1;
-            curr = pagetable[curproc->pid];
-            //freelist->pid = NULL;
+            curr = pagetable[curproc->pid/16];
+            freelist->pid = -1;
          }
          else{
             prev->next = curr->next;
@@ -219,7 +233,7 @@ void free_kpages(vaddr_t addr)
 	          freelist = curr;
 	          freelist->numPages = 0;
 	          freelist->vpn = -1;
-	          //freelist->pid = NULL;
+	          freelist->pid = -1;
 	          curr = prev->next;
          }
 	    }
@@ -308,7 +322,7 @@ as_activate(void)
 	}
 
 	splx(spl);
-	}
+	
 
 	/*
 	 * Write this.

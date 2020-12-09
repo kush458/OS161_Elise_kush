@@ -40,8 +40,8 @@ struct ppages
     struct ppages *next;
     paddr_t ppn;
     vaddr_t vpn;
-    //pid_t pid;
-    long numPages;
+    pid_t pid;
+    int numPages;
 };
 
 
