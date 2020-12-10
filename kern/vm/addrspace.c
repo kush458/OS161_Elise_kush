@@ -242,7 +242,6 @@ void free_kpages(vaddr_t addr)
    }
   }
   spinlock_release(mem_lock);
-  kprintf("not in alloclist\n");
    return;
 }
 
