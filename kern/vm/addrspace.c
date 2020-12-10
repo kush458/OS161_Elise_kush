@@ -227,7 +227,7 @@ void free_kpages(vaddr_t addr)
             vcurr->numPages = 0;
             vcurr->vpn = 0;
             vcurr->pid = 1;
-            vcurr = prev->next; //move on to next allocated mem
+            vcurr = (struct ppages *)PADDR_TO_KVADDR((paddr_t)prev->next); //move on to next allocated mem
           }
 	    }
       spinlock_release(mem_lock);
