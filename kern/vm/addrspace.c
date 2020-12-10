@@ -294,7 +294,12 @@ as_create(void)
 	/*
 	 * Initialize as needed.
 	 */
-
+        struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR(pagetable);
+        as->pagetable = pt[curproc->pid/16];
+	as->npages = 0;
+	as->as_heaptop = 0;
+	as->as_stackbottom = 0;
+	as->as_stackpbase = 0;
 	return as;
 }
 
@@ -311,8 +316,23 @@ as_copy(struct addrspace *old, struct addrspace **ret)
 	/*
 	 * Write this.
 	 */
-
-	(void)old;
+        newas->npages = old->npages;
+	newas->as_heaptop = old->as_heaptop;
+	newas->as_stackbottom = old->as_stackbottom;
+	newas->as_stackpbase = old->as_stackpbase;
+	struct ppages *oldmem = (struct ppages *)PADDR_TO_KVADDR((paddr_t)old->pagetable);
+	struct ppages *newmem = (struct ppages *)PADDR_TO_KVADDR((paddr_t)newas->pagetable);
+	while(oldmem != NULL){
+	   struct ppages * new = alloc_ppage(newas->pagetable);
+	   newmem = (struct ppages *)PADDR_TO_KVADDR((paddr_t)new);
+	   newmem->vpn = oldmem->vpn;
+	   newmem->numPages = oldmem->numPages;
+	   memmove((void *)PADDR_TO_KVADDR(newmem->ppn),(const void *)PADDR_TO_KVADDR(oldmem->ppn), PAGE_SIZE);
+	   oldmem = (struct ppages *)PADDR_TO_KVADDR((paddr_t)oldmem->next);
+	   struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR((paddr_t)pagetable);
+	   newas->pagetable = pt[curproc->pid/16];
+	   newmem = (struct ppages *)PADDR_TO_KVADDR((paddr_t)newas->pagetable);
+	}
 
 	*ret = newas;
 	return 0;
@@ -324,7 +344,12 @@ as_destroy(struct addrspace *as)
 	/*
 	 * Clean up as needed.
 	 */
-
+	struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR(pagetable);
+	for(int i = 0; i < as->npages; i++){
+	   struct ppages *currpage = (struct ppages *)PADDR_TO_KVADDR(as->pagetable);
+	   free_kpages((vaddr_t)currpage);
+	   as->pagetable = pt[curproc->pid/16];
+	}
 	kfree(as);
 }
 
@@ -352,6 +377,7 @@ as_activate(void)
 	/*
 	 * Write this.
 	 */
+	
 }
 
 void
@@ -381,23 +407,25 @@ as_define_region(struct addrspace *as, vaddr_t vaddr, size_t sz,
 	/*
 	 * Write this.
 	 */
-
-	(void)as;
-	(void)vaddr;
-	(void)sz;
+	sz += vaddr & ~(vaddr_t)PAGE_FRAME;
+	vaddr &= PAGE_FRAME;
+	sz = (sz + PAGE_SIZE - 1) & PAGE_FRAME;
+	size_t npages = sz/PAGE_SIZE;
 	(void)readable;
 	(void)writeable;
 	(void)executable;
-	return ENOSYS;
+	as->as_heaptop = as->as_heaptop + npages;
+        return 0;
+	
 }
 
 int
 as_prepare_load(struct addrspace *as)
 {
 	/*
-	 * Write this.
+	 * We don't do anything
 	 */
-
+	
 	(void)as;
 	return 0;
 }
@@ -406,7 +434,7 @@ int
 as_complete_load(struct addrspace *as)
 {
 	/*
-	 * Write this.
+	 * Don't do anything
 	 */
 
 	(void)as;
@@ -417,10 +445,10 @@ int
 as_define_stack(struct addrspace *as, vaddr_t *stackptr)
 {
 	/*
-	 * Write this.
+	 * Return stack pointer
 	 */
 
-	(void)as;
+	as->as_stackbottom = USERSTACK;
 
 	/* Initial user-level stack pointer */
 	*stackptr = USERSTACK;
