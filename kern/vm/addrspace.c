@@ -50,6 +50,7 @@ struct spinlock *mem_lock;
  */
 struct ppages *freelist = NULL;
 struct ppages ** pagetable = NULL;
+struct ppages * dummyStart = NULL;
 paddr_t firstaddr;
 paddr_t lastaddr;
 
@@ -82,8 +83,8 @@ paddr_t lastaddr;
             KASSERT(pagestart + i*PAGE_SIZE <= lastaddr-PAGE_SIZE);
             vflist->ppn = (paddr_t)(pagestart + i*PAGE_SIZE);
             vflist->numPages = 0;
-            vflist->vpn = -1;
-            vflist->pid = -1;
+            vflist->vpn = 0;
+            vflist->pid = 1;
             KASSERT(firstaddr +(i+1)*sizeof(*freelist) < pagestart-sizeof(*freelist));
            if(i == totalPages-1){//last entry to coremap
               vflist->next = NULL;
@@ -93,16 +94,15 @@ paddr_t lastaddr;
              freelist = vflist->next;
            }
 	 }
-         struct ppages *dummyStart;
          struct ppages *vdStart;
          dummyStart = (struct ppages*)(freelist + totalPages*sizeof(*freelist));
          vdStart = (struct ppages *)PADDR_TO_KVADDR((paddr_t)dummyStart);
          vdStart->next = NULL;
          vdStart->numPages = 0;
-         vdStart->ppn = -1;
+         vdStart->ppn = 0;
          vdStart->vpn = -1;
          vdStart->pid = -1;
-
+	 freelist = (struct ppages *)firstaddr;
 	 //initialize empty alloclist dummy start, located where initialized freelist ends
          pagetable = (struct ppages **)(firstaddr + totalPages*sizeof(*freelist));
 	 struct ppages **vpt = (struct ppages**)PADDR_TO_KVADDR((paddr_t)pagetable);
@@ -129,28 +129,26 @@ return 0;
    struct ppages * valloc;
    vfree = (struct ppages *)PADDR_TO_KVADDR((paddr_t)freelist);
    valloc = (struct ppages *)PADDR_TO_KVADDR((paddr_t)alloclist);
-   spinlock_acquire(mem_lock);
 	 KASSERT(vfree->next != NULL); //no page eviction yet
    //move the front of free list to the front of the processes
    //alloclist and set the ppages fields
 	 temp = vfree->next;
-   if(valloc->ppn == -1){//if first entry in pagetableentry
+   if(valloc->ppn == 0){//if first entry in pagetableentry
       vfree->next = NULL;
    }
    else {
 	  vfree->next = alloclist;
    }
-   struct ppages **pt = (struct ppages**)PADDR_TO_KVADDR((paddr_t)pagetable);
-	 pt[curproc->pid] = freelist; //add new page to front of processes alloclist
+   struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR((paddr_t)pagetable);
+	 pt[curproc->pid/16] = freelist; //add new page to front of processes alloclist
    valloc = (struct ppages *)PADDR_TO_KVADDR((paddr_t)pt[curproc->pid/16]);
 	 KASSERT(valloc->ppn == vfree->ppn);
 	 KASSERT(valloc->ppn!=0);
-	 valloc->vpn = PADDR_TO_KVADDR(valloc->ppn);
+	 valloc->vpn = (vaddr_t)PADDR_TO_KVADDR((paddr_t)valloc->ppn);
    valloc->pid = curproc->pid;
    valloc->numPages = 1;
 	 freelist = temp;
-   spinlock_release(mem_lock);l
-	 return pt[curproc->pic/16];
+	 return pt[curproc->pid/16];
  }
 
 vaddr_t alloc_kpages(unsigned npages)
@@ -161,22 +159,22 @@ vaddr_t alloc_kpages(unsigned npages)
     return PADDR_TO_KVADDR(pa);//like dumbvm
   }
   else{
-    struct ppages **pt = (struct ppges **)PADDR_TO_KVADDR((paddr_t)pagetable);
+    spinlock_acquire(mem_lock);
+    struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR((paddr_t)pagetable);
     struct ppages *alloclist = pt[curproc->pid/16];
    //grab a page
 	  for(unsigned int i = 0; i < npages; i++){
-       struct ppages * vfree = (struct ppages **)PADDR_TO_KVADDR((paddr_t)freelist);
-	     KASSERT(vfree->next != NULL);//no page eviction
 	     alloclist = alloc_ppage(alloclist);
 	  }
    //make sure the page returned is at the front of the alloc list
    KASSERT(pt[curproc->pid/16] == alloclist);
-   struct ppages **valloc = (struct ppages **)PADDR_TO_KVADDR((paddr_t)alloclist);
-   spinlock_acquire(mem_lock);
+   struct ppages *valloc = (struct ppages *)PADDR_TO_KVADDR((paddr_t)alloclist);
    valloc->numPages = npages;
-   spinlock_release(mem_lock);
 	 KASSERT(valloc->ppn != 0);
-	 return PADDR_TO_KVADDR(valloc->ppn);
+       vaddr_t out = PADDR_TO_KVADDR((paddr_t)valloc->ppn);
+      KASSERT(out == valloc->vpn);
+      spinlock_release(mem_lock);
+	 return out;
  }
 }
 
@@ -187,28 +185,37 @@ void free_kpages(vaddr_t addr)
 		return; //do nothing(like dumbvm, leak memory)
   }
   int front = 0;
-  struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR(paddr_t)pagetable);
+  front = curproc->pid;
+  spinlock_acquire(mem_lock);
+  struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR((paddr_t)pagetable);
 	struct ppages *alloclist = pt[curproc->pid/16];
   //get front of alloclist for this pid
 	struct ppages *vcurr = (struct ppages *)PADDR_TO_KVADDR((paddr_t)alloclist);
-  struct ppages *vfree = (struct ppages *)PADDR_TO_KVADDR((paddr_t)freelist);
+  KASSERT(vcurr->ppn != 0); //this would mean the alloclist is empty
+
 	struct ppages *prev = NULL;
-	while(vcurr->next != NULL){
-	  if(vcurr->vpn == addr && curproc->pid == vcurr->pid){
+	while(vcurr != NULL){
+	  if((vaddr_t)vcurr->vpn == addr && curproc->pid == vcurr->pid){
 	    KASSERT(vcurr->numPages != 0);
       //check to see if we have to update the front of the alloclist
       if(vcurr == (struct ppages *)PADDR_TO_KVADDR((paddr_t)alloclist)){
         front = 1;
       }
-	    for(int i = 0; i < vcurr->numPages; i++){
+           int np = vcurr->numPages;
+	    for(int i = 0; i < np; i++){
          if(front == 1){
             prev = freelist;
             freelist = pt[curproc->pid/16];
-            pt[curproc->pid/16] = vcurr->next;
+            if(vcurr->next == NULL){
+              pt[curproc->pid/16] = dummyStart;
+            }
+	    else{
+              pt[curproc->pid/16] = vcurr->next; 
+            }
             vcurr->next = prev;
             vcurr->numPages = 0;
-            vcurr->vpn = -1;
-            vcurr->pid = -1;
+            vcurr->vpn = 0;
+            vcurr->pid = 1;
             vcurr = pt[curproc->pid/16];
           }
           else{
@@ -218,18 +225,25 @@ void free_kpages(vaddr_t addr)
             freelist = temp;
             KASSERT(prev->next != vcurr && prev->next != vcurr->next);
             vcurr->numPages = 0;
-            vcurr->vpn = -1;
-            vcurr->pid = -1;
+            vcurr->vpn = 0;
+            vcurr->pid = 1;
             vcurr = prev->next; //move on to next allocated mem
           }
 	    }
+      spinlock_release(mem_lock);
       return;
     }
-  prev = vcurr;
-  vcurr = (struct ppages *)PADDR_TO_VADDR((paddr_t)vcurr->next);
+   prev = vcurr;
+   if(vcurr->next == NULL){
+    vcurr = NULL;
+   }
+   else {
+    vcurr = (struct ppages *)PADDR_TO_KVADDR((paddr_t)vcurr->next);
+   }
   }
-  kprintf("Not in processes alloclist");
-  return;
+  spinlock_release(mem_lock);
+  kprintf("not in alloclist\n");
+   return;
 }
 
 void vm_tlbshootdown_all(void)
