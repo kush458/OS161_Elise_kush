@@ -117,9 +117,34 @@ paddr_t lastaddr;
 
  int vm_fault(int faulttype, vaddr_t faultaddress)
  {
-(void)faulttype;
-(void)faultaddress;
-return 0;
+//(void)faulttype;
+//(void)faultaddress;
+  paddr_t pad1;
+  int entryhi, entrylo;
+  struct ppages **pt = (struct ppages **)PADDR_TO_KVADDR((paddr_t)pagetable);
+  struct ppages *temp = pt[curproc->pid/16];
+
+  if(faulttype == VM_FAULT_READ  || faulttype == VM_FAULT_WRITE){
+      if(faultaddress >= USERSTACK){
+        return EFAULT;
+      }
+      while(temp != NULL){
+        if(temp->vpn == faultaddress){
+          break;
+        }
+ 
+        temp = temp->next;
+      }
+  }
+  pad1 = temp->ppn;
+  int s = splhigh();
+  entrylo = pad1 | TLBLO_VALID;
+  entryhi = faultaddress;
+  tlb_random(entryhi, entrylo);
+  splx(s);
+  
+  return 0;
+
 
  }
 
